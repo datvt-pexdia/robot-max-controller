@@ -1,1 +1,174 @@
-"# robot-max-controller" 
+# robot-max-controller
+
+A minimal yet production-ready system to orchestrate a three-device robot (arm, neck, wheels) using a Node.js command server and an ESP8266 firmware client. The firmware runs in simulation mode by default so you can exercise the full stack without motors attached.
+
+## Project structure
+
+```
+project/
+  server/            # Node.js command and WebSocket server (TypeScript)
+    package.json
+    tsconfig.json
+    src/
+      api.ts         # REST API routes
+      config.ts      # Core configuration values
+      demoData.ts    # Helpers to generate sample tasks
+      index.ts       # Entry point
+      logger.ts      # Timestamped console logger
+      models.ts      # Shared schemas/types
+      taskQueue.ts   # In-memory task bookkeeping for status reporting
+      wsHub.ts       # ESP WebSocket connection manager
+  firmware/          # ESP8266 Arduino firmware (simulation-first)
+    src/
+      Config.h       # Wi-Fi + WebSocket configuration
+      NetClient.*    # WebSocket client with reconnect logic
+      TaskRunner.*   # Cooperative scheduler + device queues
+      TaskTypes.h    # Shared task envelope struct
+      main.ino       # Arduino setup/loop
+      Devices/       # Device-specific controllers (simulation aware)
+        ArmDevice.*
+        NeckDevice.*
+        WheelsDevice.*
+```
+
+## Prerequisites
+
+- Node.js 20+
+- npm 9+
+- `arduino-cli` (for firmware compilation)
+
+## Server setup
+
+```bash
+cd server
+npm install
+```
+
+### Development server
+
+```bash
+npm run dev
+```
+
+The server starts on <http://localhost:8080> and exposes a WebSocket endpoint at `ws://localhost:8080/robot`. Startup logs include ready-made `curl` commands for quick testing.
+
+### Build & production run
+
+```bash
+npm run build
+npm start
+```
+
+## REST API
+
+All endpoints accept/return JSON.
+
+### Replace tasks immediately
+
+Cancels any running task per device and starts the provided tasks right away (first item per device becomes active, additional tasks queued).
+
+```bash
+curl -X POST http://localhost:8080/robot/tasks/replace \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tasks":[
+      {"taskId":"t1","device":"wheels","type":"drive","left":60,"right":60,"durationMs":1500},
+      {"taskId":"t2","device":"arm","type":"moveAngle","angle":120}
+    ]
+  }'
+```
+
+### Enqueue tasks (preserve currently running task)
+
+```bash
+curl -X POST http://localhost:8080/robot/tasks/enqueue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tasks":[
+      {"taskId":"t3","device":"wheels","type":"drive","left":0,"right":80,"durationMs":800,"enqueue":true},
+      {"taskId":"t4","device":"wheels","type":"drive","left":80,"right":0,"durationMs":800,"enqueue":true}
+    ]
+  }'
+```
+
+### Cancel a device
+
+```bash
+curl -X POST http://localhost:8080/robot/tasks/cancel \
+  -H "Content-Type: application/json" \
+  -d '{"device":"wheels"}'
+```
+
+### Server + queue status
+
+```bash
+curl http://localhost:8080/robot/status
+```
+
+Example response:
+
+```json
+{
+  "connected": false,
+  "lastHello": null,
+  "devices": {
+    "arm": { "runningTaskId": null, "queueSize": 0, "lastUpdated": null },
+    "neck": { "runningTaskId": null, "queueSize": 0, "lastUpdated": null },
+    "wheels": { "runningTaskId": null, "queueSize": 0, "lastUpdated": null }
+  },
+  "queueSizes": { "arm": 0, "neck": 0, "wheels": 0 }
+}
+```
+
+## ESP8266 firmware
+
+The firmware is designed for NodeMCU-style ESP8266 boards. It defaults to simulation mode (`SIMULATION true`) which prints every action to the serial monitor.
+
+Update `firmware/src/Config.h` with your Wi-Fi credentials and server IP before flashing.
+
+### Arduino CLI setup
+
+```bash
+arduino-cli core update-index
+arduino-cli core install esp8266:esp8266
+arduino-cli lib install "arduinoWebSockets" "ArduinoJson"
+```
+
+### Compile
+
+```bash
+arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 ./firmware
+```
+
+### Upload (adjust serial port)
+
+```bash
+arduino-cli upload -p COM13 --fqbn esp8266:esp8266:nodemcuv2 ./firmware
+```
+
+### Serial monitor
+
+```bash
+arduino-cli monitor -p COM13 -c baudrate=115200
+```
+
+## Firmware behaviour highlights
+
+- **Simulation friendly:** every device action (`[ARM]`, `[NECK]`, `[WHEELS]`) logs to serial with angles, speeds, durations, and completion notices.
+- **Single active client:** when the ESP connects, the server buffers any pending tasks and flushes them after the handshake.
+- **Replace vs enqueue:** replace cancels current + future tasks for each device; enqueue preserves the current task and appends to the queue.
+- **Task lifecycle callbacks:** the ESP responds with `ack`, `progress`, `done`, or `error` messages for each task so the server always knows the state.
+- **Robust reconnects:** Wi-Fi and WebSocket connections auto-retry with exponential backoff (1s → 5s). When the socket drops, all in-flight tasks are canceled to prevent desynchronisation.
+- **Heartbeats:** the server pings the ESP every 10s and treats missing pongs (>20s) as a disconnect.
+
+## Troubleshooting
+
+- **ESP never connects:** confirm `WS_HOST` points to your server's LAN IP and that the port (8080) is reachable. Check the serial monitor for `[WIFI]` and `[NET]` logs.
+- **Server status shows `connected:false`:** ensure the firmware is running and Wi-Fi is stable. The ESP sends a `hello` packet on connect which updates `lastHello`.
+- **Tasks not executing:** watch serial logs for cancellation messages. Replace requests preempt running tasks per device.
+
+## Next steps
+
+- Flip `SIMULATION` to `false` in `Config.h` and integrate actual Servo/motor drivers.
+- Extend `NetClient` to persist outbound telemetry if desired (e.g., local buffering when offline).
+- Add authentication by replacing the `JWT_DISABLED` placeholder once security requirements are defined.
