@@ -1,0 +1,46 @@
+# Node dependencies
+server/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+server/dist/
+server/build/
+server/coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# dotenv environment variables
+.env
+.env.*
+
+# Logs
+logs
+*.log
+
+# VS Code settings
+.vscode/
+
+# Temporary files
+*.swp
+*.swo
+
+# Ignore test results and coverage
+*.lcov
+*.nyc_output
+
+# Editor directories and files
+.idea/
+*.iml
+
+# Ignore local config
+server/config.local.*
+
+# Ignore potential secret/test credentials
+*.secret
+*.pem
+
+# Ignore compiled/temporary files
+*.tsbuildinfo
+
