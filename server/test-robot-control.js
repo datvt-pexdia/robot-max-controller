@@ -21,7 +21,7 @@ const axios = require('axios');
 const readline = require('readline');
 
 // Configuration
-const SERVER_HOST = '10.0.5.97';
+const SERVER_HOST = '192.168.1.6';
 const SERVER_PORT = 8080;
 const BASE_URL = `http://${SERVER_HOST}:${SERVER_PORT}`;
 
@@ -76,7 +76,7 @@ async function sendTasks(tasks, mode = 'replace') {
     try {
         const endpoint = mode === 'replace' ? '/robot/tasks/replace' : '/robot/tasks/enqueue';
         const response = await makeRequest('POST', endpoint, { tasks });
-
+        console.log(response.data);
         if (response.status === 202) {
             log(`✓ Tasks sent successfully (${mode} mode)`, 'green');
             return true;
@@ -85,6 +85,7 @@ async function sendTasks(tasks, mode = 'replace') {
             return false;
         }
     } catch (error) {
+        console.log(error.response.data);
         log(`✗ Error sending tasks: ${error.message}`, 'red');
         return false;
     }
@@ -153,35 +154,61 @@ async function testBasicMovement() {
         taskId: 'forward-1',
         device: 'wheels',
         type: 'drive',
-        left: 60,
-        right: 60,
-        durationMs: 2000
+        left: 50,
+        right: 50,
+        durationMs: 1000
     }]);
 
-    await sleep(2500);
-
-    // Backward movement
-    log('Moving backward...', 'blue');
+    await sleep(1000);
     await sendTasks([{
-        taskId: 'backward-1',
+        taskId: 'forward-1',
         device: 'wheels',
         type: 'drive',
-        left: 40,
-        right: 40,
-        durationMs: 2000
+        left: -100,
+        right: -100,
+        durationMs: 1000
     }]);
+    await sleep(1000);
+    await sendTasks([{
+        taskId: 'forward-1',
+        device: 'wheels',
+        type: 'drive',
+        left: -100,
+        right: 100,
+        durationMs: 1000
+    }]);
+    await sleep(1000);
+    await sendTasks([{
+        taskId: 'forward-1',
+        device: 'wheels',
+        type: 'drive',
+        left: 100,
+        right: -100,
+        durationMs: 10000
+    }]);
+    await sleep(1000);
+    // Backward movement
+    // log('Moving backward...', 'blue');
+    // await sendTasks([{
+    //     taskId: 'backward-1',
+    //     device: 'wheels',
+    //     type: 'drive',
+    //     left: -100,
+    //     right: -100,
+    //     durationMs: 5000
+    // }]);
 
-    await sleep(2500);
+    // await sleep(5000);
 
-    // Stop
-    log('Stopping...', 'blue');
+    // // Stop
+    // log('Stopping...', 'blue');
     await sendTasks([{
         taskId: 'stop-1',
         device: 'wheels',
         type: 'drive',
         left: 0,
         right: 0,
-        durationMs: 500
+        durationMs: 10
     }]);
 }
 

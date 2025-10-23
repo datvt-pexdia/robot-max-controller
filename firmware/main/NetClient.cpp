@@ -75,6 +75,12 @@ void NetClient::sendError(const String& taskId, const String& message) {
 }
 
 void NetClient::connect() {
+  // Prevent multiple simultaneous connection attempts
+  if (connected) {
+    Serial.println("[NET] Already connected, skipping connection attempt...");
+    return;
+  }
+  
   lastConnectAttempt = millis();
   Serial.printf("[NET] connecting to ws://%s:%u%s\n", WS_HOST, WS_PORT, WS_PATH);
   Serial.printf("[NET] WiFi status: %d\n", WiFi.status());
@@ -99,6 +105,7 @@ void NetClient::scheduleReconnect() {
   connected = false;
   reconnectDelay = reconnectDelay * 2;
   if (reconnectDelay > WS_RECONNECT_MAX_MS) reconnectDelay = WS_RECONNECT_MAX_MS;
+  Serial.printf("[NET] Scheduled reconnect in %lu ms\n", reconnectDelay);
 }
 
 void NetClient::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
@@ -111,6 +118,7 @@ void NetClient::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
       break;
     case WStype_DISCONNECTED:
       Serial.printf("[NET] WebSocket disconnected. Code: %d\n", length);
+      Serial.printf("[NET] Current reconnect delay: %lu ms\n", reconnectDelay);
       scheduleReconnect();
       if (runner) {
         runner->onDisconnect();

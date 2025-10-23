@@ -29,4 +29,8 @@ struct TaskEnvelope {
   int16_t left;
   int16_t right;
   uint32_t durationMs;
+  
+  // Motor command storage for continuous sending
+  uint8_t leftCmd;
+  uint8_t rightCmd;
 };

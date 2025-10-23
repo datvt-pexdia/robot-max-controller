@@ -1,0 +1,386 @@
+﻿Meccano MAX Control codes 
+I have carried out tests on the Meccano MAX robot, to find out the control codes used and allow the 
+robot to be used with other computing formats such as Arduino.  The details of control codes for an 
+earlier Meccanoid robot are available on-line at http://cdn.meccano.com/open-
+source/Meccano_SmartModuleProtocols_2015.pdf, referred to from now on as “the Protocol”, but this 
+document does not include reference to some of the MAX peripherals, including the smart motors, IR 
+sensor and face LED array.  The official website also includes an Arduino library which is intended to 
+allow Arduino users to connect to the robot – again, this does not allow for the new MAX modules. 
+
+Overview of the MAX System 
+Physical Connections 
+The MAX robot has peripherals connected to a computing element, the MeccaBrain™, using 4 
+separate ports or channels.  Each channel can have up to 4 modules connected in a daisy-chain 
+arrangement, with modules identified by the order of connection.  The standard connections are: 
+
+ 
+Channel 1. Two motors, which allow steering as part of a tricycle undercarriage assembly. 
+
+∼ The left motor is connected to the first position in the chain, followed by the right in 
+position 2 
+
+Channel 2. Two servos, one for a claw or gripper; the other to move the head from side to 
+side. 
+
+∼ The head servo is connected in position 1, followed by the gripper servo in position 2. 
+
+Channel 3. A face array containing an 8-row, 16-column LED matrix. 
+
+Channel 4. A pair of infra-red sensors. 
+
+Summary of Operation 
+The system operation has two stages.  When first powered up, a series of commands are sent which 
+“discover” what peripheral modules are connected to each channel.  If the Robot mode is being used, 
+any modules that are not connected to the correct channel cause an error message: MAX will say that 
+“There seems to be a problem with … “.  In the Drone mode, there is more flexibility and it is possible 
+to use non-standard connections and add elements.  (I have used servos from one of the Meccanoid 
+robots to give MAX functioning “shoulders” and “elbows”.) 
+
+
+
+The Discovery Process 
+The discovery process for MAX is as described in the Protocol.  For each channel, there are two 
+stages: 
+
+• Determining if any module is connected to a position  
+• If a module is connected, determining the type of that module 
+
+The initial sequence sent to a channel is  
+
+ 0xFF 0xFE 0xFE 0xFE 0xFE 0xAn 
+
+where the first byte 0xFF indicates the start of a command string; the next four are command or data 
+modules connected in positions 0, 1, 2, and 3 respectively; the first nybble (0xA in the example) of the 
+final byte is the checksum derived from the four data bytes; and the second nybble is the identifier for 
+the module which should reply.   
+
+The modules are polled in sequence, and will generate a reply if connected.  According to the 
+Protocol, a reply of 0x00 indicates there is no module in that position.  A module that is present will 
+send a reply 0xFE in return. 
+
+When a module replies with 0xFE, the command byte for that module changes to 0xFC.  This is a 
+request for the module to reply with an identification byte, indicating what type of module is installed in 
+that position.  Identification bytes for the full range of modules (the Smart LEDs are not part of the 
+MAX kit) are: 
+
+0x01 Smart Servo 
+
+0x02 Smart LED (used with Meccanoid robots - not supplied as part of the MAX kit) 
+
+0x03 doesn’t appear to be used at present 
+
+0x04 IR sensor 
+
+0x05 Smart motor 
+
+0x06 MAX face array 
+
+Once the identification byte has been received for all connected modules, the operating mode 
+changes.  The instructions used once a device has been identified are described in more detail in the 
+following sections. 
+
+Once the discovery process is complete, operation changes to commands specific to the particular 
+module.  There may be a further initial set-up phase, such as for the servos where the starting 
+position is read before any activation signals are sent. 
+
+Data Communications Formats 
+As set out in the Protocol, the communications from the MeccaBrain™ to the modules uses 2400 
+baud 8N2 serial format.  A standard message sequence is used for most commands (the exception 
+being the format used to write displays to the face array).   
+
+A command message is made up of 6 bytes, with the first being a starting indication of 0xFF, followed 
+by bytes for each of the module positions, with a final byte combining a checksum with a module 
+identification code.  The bytes transmitted to the modules are sent in order, with byte [1] being read by 
+the module in position 0, byte [2] that in position 1, byte [3] that in position 2, and byte[4] that in 
+position 3. 
+
+
+
+ 
+The final byte has two functions.  The most significant nybble is a checksum calculated from bytes 1 
+to 4.  The calculation routine is: 
+
+byte cmdCheckSum(byte data[]) 
+{ 
+  int CS = 0; 
+  for (int i = 1; i < 5; i++) 
+  { 
+    CS = CS + data[i]; 
+  } 
+  CS = CS + (CS >> 8); 
+  CS = CS + (CS << 4); 
+  CS = CS & 0xF0; 
+  return CS; 
+
+ }  
+The least significant nybble is the module position, ranging from 0 to 3. 
+
+The reply from the module to the MeccaBrain™™ uses a Pulse Width Modulation format.  Each bit of 
+the response is made up of a HIGH followed by a LOW.  For a “1” in the response, the HIGH pulse 
+length is more than 400 µs, while for a 0 it is less than this value.  In practice, the values are 800 µs 
+HIGH, 300 µs LOW for “1”; 300 µs HIGH, 800 µs LOW for “0”.  The frame format has a LOW start bit 
+which lasts for about 2 ms.  There is no stop bit.  Data is sent Least Significant Bit first, with no parity 
+or checksum being used. 
+
+A similar PWM format is used to send a display pattern to the LED array used as a face.  This is 
+similar to (but not the same as) that given as a response by the modules, but will be described in 
+detail when that module is discussed. 
+
+Other Features 
+The MeccaBrain™ has an on-off switch and 8 illuminated push-buttons.  It can be programmed using 
+the switch array on the MeccaBrain™, or remotely from a tablet or Smartphone via a Bluetooth® link.  
+There are two modes of operation: the standard Robot mode, where the behaviour is set by the on-
+board program, and the Drone mode, which allows a lot more flexibility. 
+
+Remote Control and Programming 
+Two remote control displays are available in tablets using the MeccanoApp available from the Android 
+Play Store or the Apple App Store.  (Note: NOT the MeccaNoid app!)  In Robot mode, a pictorial 
+representation of the robot is available, with ia polar display at the bottom left to control the robot 
+movement, and individual controls for the servos at the botom right.   
+
+
+
+ 
+In Robot and Drone modes, another display shows the individual elements connected to the 
+channels, with sliders to adjust the position of the servos and the speed of the motors individually.  
+The example shows this display with a non-standard connection setup. 
+
+ 
+The robot can be programmed in three ways.  In one mode of operation, the LIM or “Learned 
+Intelligent Movement” mode, the motors and servos are placed in a mode where they are not actively 
+driven but can be moved by hand.  The positions are sensed and fed back to the MeccaBrain™, 
+where they are recorded for later use in actively moving the robot.  Another mode of programming the 
+switches on the MeccaBrain™ are used to indicate movement .   
+
+ 
+These two modes are limited in what they can do with the servos, and cannot use the IR sensor.  A 
+third mode uses a simplified form of “Drag and Drop” where standard elements such as if blocks and 
+actions can be fitted together rather like a jigsaw puzzle and used to control actions.  In this mode, 
+
+
+
+any objects sensed by the IR detectors can be used – for exampel, to take evasive action as in the 
+example shown.   
+
+Testing Process 
+The tests used an Arduino Mega to snoop on the communications between the MAX MeccaBrain™ 
+and the available peripherals, which included the servos, “smart” motors, infra-red sensor, and face 
+array.  Timing tests gave detailed timing information on the transitions in the responses, and were 
+also found necessary to decode the signals sent from the MeccaBrain™ to the face array.  These use 
+a similar PWM format to the peripheral response, but one with different timing and transmission 
+framing. 
+
+The tests gave information on the transactions during system start-up.  By using the programming 
+feature of the remote control facility to send specific commands to the peripherals, they also gave 
+details of commands needed for specific actions.  This information allowed a program to be written to 
+confirm the information was correct. 
+
+Smart Servomotors 
+There are two “Smart servomotors” supplied – a small one used to operate the claw, and a larger one 
+used to move the head from side to side.  In the standard connection, these are wired to Channel 2 
+with the head servo in position 0 and the claw in position 1.  The servos also contain a multi-colour 
+LED. 
+
+The servo position is set by writing the positional value to the module.  The value must be between 
+0x18 and 0xE8.  The returned value is the current position of the servo.   
+
+Setting the servo to LIM mode allows the servo to be freely rotated.. The command for this is 0xF9.  
+Again, the returned value is the current servo position. 
+
+The LED colour can be changed to one of 8 colour combinations by writing a command between 0xF0 
+and 0xF7.   The last 3 bits each control the state of one of the colours – bit 0 is RED, bit 1 is GREEN, 
+and bit 2 is BLUE.  The actual colour combinations are: 
+
+• 0xF0  :  B, G, R all off – dark 
+• 0xF1  :  B, G off: R on - RED 
+• 0xF2  :  B off: G on: R off - GREEN 
+• 0xF3  :  B off: G, R on - YELLOW 
+• 0xF4  :  B on: G, R off - BLUE 
+• 0xF5  :  B on: G: off:, R on - MAGENTA 
+• 0xF6  :  B, G on: R off - CYAN 
+• 0xF7  :  B, G, R all on - WHITE 
+
+IR Sensors 
+The IR Sensor module contains 2 IR transmitter/receivers.  These sense objects to the left and right 
+of the centre-line. 
+
+To read the sensors, a command 0xDD must be used.  The value returned is a byte with the Most 
+Significant nybble indicating a response from the left sensor, and the Least Significant nybble a 
+response from the right sensor.  The response value ranges from 0 for a close object to 0xD for an 
+object about 2 m distant.  Each increment in digit represents about 12 mm or 1/2” change in the 
+distance to the sensed object. 
+
+Smart Motors 
+There are two “Smart” motors supplied, for the left and right “feet”.  These can report back a position.  
+In the standard connection, these are wired to Channel 1 with the left motor (as seen from the robot) 
+in position 0 and the right motor in position 1.  
+
+Using the MeccaBrain™, there are a number of different command codes used for the motors.  The 
+ones of most interest are those which affect the motor direction and speed.  The speed is set by a 
+
+
+
+value in the range of 0x42 – 0x4F, with 0x40 being stopped.  Wheels start to turn at 0x42, which gives 
+a speed of about 6 rpm.  The maximum setting is 0x4F with a speed of about 21 rpm.  
+
+Direction of rotation is set by a command code of 0x2n or 0x3n.  The first nybble sets the direction – 
+there appears to be no effect on changing the second nybble from 2 to F.  With 0x20 or 0x30, the 
+motors are stopped, while 0x21 or 0x31 give a jerky movement.  A point to note is that the directional 
+code affects the direction of rotation of the wheels, rather than the direction of travel of the robot.  
+0x2n rotates the wheel clockwise as viewed from the outside of the wheel, while 0x3n rotates it 
+anticlockwise.  To move the robot forward, the left wheel must turn anti-clockwise while the right 
+wheel turns clockwise: the command string is 
+
+ 0xFF 0x34  0x24  0xFE  0xFE  0x2n.   
+
+To move it in reverse, the command is 
+
+  0xFF  0x24  0x34  0xFE  0xFE  0x2m. 
+
+The response from the module is a positional signal with a range of 0 – 0x4F – ie, 80 positions, 
+covering a complete wheel rotation.  However, it is not continuous as there is a relatively large gap at 
+around 0.  To illustrate, with the motor running continuously in the forward direction, returns from the 
+robot’s left motor are  18,  14,  12,  0E,  0A,  08,  00,  00,  4E,  4A  … 
+
+Face Array 
+The face array consists of 8 rows of 16 LEDs.  A pattern is transmitted to the “face” using a PWM 
+format, similar to that used for the module response.  However, there are several important 
+differences: 
+
+• The pulse rate is faster, with each signal bit being made up from 3 140 µs signal levels – a 
+HIGH, a HIGH or LOW depending on the value to be transmitted, and a LOW.   
+ 
+
+• The data stream can be interpreted as 16 8-bit bytes, transmitted MSB first.  The first bit sent 
+is the top left as viewed from the front, and each byte represents one of the columns. 
+ 
+
+• A frame of data consists of a preamble made up of 140 µs LOW, 560 µs HIGH, 140 µs LOW, 
+followed by 18 8-bit bytes, followed by a postamble made up of 560 µs HIGH followed by a 
+LOW . The 8-bit bytes are the 16 bytes giving the face pattern, a fixed 0xF5 flag byte, and a 
+checksum.  Each byte is transmitted MSB first. 
+ 
+
+• The checksum is a single byte formed from a 1’s complement addition on the transmitted data 
+and flag byte.  The checksum is found by subtracting this sum from 0xFF.  The calculation is: 
+
+byte wrtCheckSum(byte data[])   // data[] is 16 display bytes followed by 0xF5 
+{ 
+  int cs = 0; 
+  for (int i = 0; i < 17; i++) 
+  { 
+    cs = cs + data[i]; 
+    if (cs > 255) cs = cs - 255; 
+  } 
+  cs = 0xFF - cs; 
+  return (byte)cs; 
+} 
+
+ 
+A single data frame requires a total of 18 bytes of data, each byte involving 24 140 µs elements, with 
+an additional 11 elements needed for the preamble(6) and postamble(5).  The total time for a frame is 
+therefore (11 + (18 × 3 × 8)) × 140 µs   =   443 × 140 µs   =   62 ms.  The maximum update rate for 
+the display is therefore about 16 / second.  Updating at this rate will require most of the resources of a 
+standard Auduino.  One solution is to use a Nano as a dedicated array processor with an SPI link to 
+communicate with the main host processor. 
+
+
+
+The panel below shows an example of a displayed face pattern, with the associated data stream.  For 
+this pattern, the transmitted logic levels are (each element has a 140 µs duration): 
+ LHHHHL        Preamble 
+ HHL HHL HHL HHL HHL HHL HHL HHL  0xFF 
+ HHL HHL HLL HLL HHL HHL HLL HHL  0xCD 
+ HHL HLL HHL HHL HLL HHL HLL HHL  0xB5 
+ HHL HLL HLL HHL HLL HHL HLL HHL  0x95 
+ HHL HLL HLL HHL HLL HHL HLL HHL  0x95 
+ HHL HHL HLL HLL HHL HHL HLL HHL  0xCD 
+ HHL HHL HHL HHL HHL HHL HLL HHL  0xFD 
+ HHL HHL HHL HHL HHL HHL HHL HHL  0xFF 
+ HHL HHL HHL HHL HHL HHL HHL HHL  0xFF 
+ HHL HHL HHL HHL HHL HHL HLL HHL  0xFD 
+ HHL HHL HHL HLL HLL HHL HLL HHL  0xED 
+ HHL HHL HLL HLL HHL HHL HLL HHL  0xCD 
+ HHL HHL HLL HLL HHL HHL HLL HHL  0xCD 
+ HHL HHL HLL HLL HHL HHL HLL HHL  0xCD 
+ HHL HHL HhL HLL HHL HHL HLL HHL  0xED 
+ HHL HHL HHL HHL HHL HHL HHL HHL  0xFF 
+ HHL HHL HHL HHL HLL HHL HLL HHL  0xF5 
+ HLL HHL HLL HLL HHL HLL HHL HHL  0x4A  (Checksum) 
+ HHHHL        Postamble 
+ 
+
+  0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 
+
+LSB 0                 
+
+ 1                 
+
+ 2                 
+
+ 3                 
+
+ 4                 
+
+ 5                 
+
+ 6                 
+
+MSB 7                 
+
+ 
+ 0 1 2 3 4 5 6 7   
+
+0 1 1 1 1 1 1 1 1  FF 
+
+1 1 1 0 0 1 1 0 1  CD 
+
+2 1 0 1 1 0 1 0 1  B5 
+
+3 1 0 0 1 0 1 0 1  95 
+
+4 1 0 0 1 1 0 1 0  95 
+
+5 1 1 0 0 1 1 0 1  CD 
+
+            
+
+LEDs            
+LEDs are not provided with the MAX robot, but are part of the Meccanoid robot kit.  The colour of the 
+LEDs can be adjusted, as can th e tran sitio n tim e i nvo lved  wh en  the  colo ur is changed.  Two data 
+bytes are required, and are trans mitted  on  alte rna te p ass es  thro ugh  the  command sequence. 
+
+Each data byte has 7 active bits.   The  Mos t Si gnif ican t bi t is  0.  T he  next  bit is 0 for the first data byte 
+and 1 for the second.  The remaining 6 bits give the values for the three colour components, and the 
+fade time.  Each colour compone nt ha s 8 l eve ls w ith  000  bei ng o ff  and 1 11 being full on.  The fade 
+time is as follows:            
+
+000 -  0 seconds (no fade, c hang e im me diat ely)       
+
+           
+
+           
+
+           
+
+           
+
+
+
+001 -  200ms   (very very fast fade) 
+
+010 -  500ms   (very fast fade) 
+
+011-  800ms  (fast fade) 
+
+100 -  1 second (normal fade) 
+
+101-  2 seconds (slow fade) 
+
+110  - 3 seconds (very slow fade) 
+
+111 -  4 seconds  (very very slow fade) 
+
+The first byte has the levels of green and red components, and the second the fade time and the level 
+of the blue component.  The first bye is then 0  0  ggg  rrr,  and the second is 0  1  fff  bbb, where ggg, 
+rrr, fff, and bbb are the data bits for the green, red, fade, and blue settings respectively.

@@ -1,4 +1,5 @@
 #include <ESP8266WiFi.h>
+#include <Scheduler.h>
 
 #include "Config.h"
 #include "NetClient.h"
@@ -50,5 +51,5 @@ void loop() {
   }
   netClient.loop();
   taskRunner.tick(millis());
-  delay(5);
+  delay(5);  // Reduced delay for smoother motor control
 }

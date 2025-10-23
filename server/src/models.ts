@@ -30,8 +30,8 @@ export type NeckTask = z.infer<typeof neckTaskSchema>;
 export const wheelsTaskSchema = taskBaseSchema.extend({
   device: z.literal('wheels'),
   type: z.literal('drive'),
-  left: z.number().int().min(0).max(100),
-  right: z.number().int().min(0).max(100),
+  left: z.number().int().min(-100).max(100),
+  right: z.number().int().min(-100).max(100),
   durationMs: z.number().int().positive().max(60_000).optional()
 });
 export type WheelsTask = z.infer<typeof wheelsTaskSchema>;
