@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DeviceBase.h"
+#include <Arduino.h>
 #include <MeccaChannel.h>
 #include <MeccaMaxDrive.h>
 
@@ -24,6 +25,7 @@ class WheelsDevice : public DeviceBase {
   bool isCompleted(uint32_t now) const override;
   uint8_t progress(uint32_t now) const override;
   String currentTaskId() const override;
+  bool tryUpdate(const TaskEnvelope& task, uint32_t now) override;
 
  private:
   // Trạng thái hiện tại của tác vụ
@@ -34,6 +36,8 @@ class WheelsDevice : public DeviceBase {
   uint32_t    durationMs;
   uint8_t     lastLoggedProgress;
   uint32_t    lastCommandMs;   // thời điểm cuối gửi lệnh motor (keep-alive)
+  uint8_t     leftSpeedByte;   // speed byte hiện hành (0x40..0x4F)
+  uint8_t     rightSpeedByte;  // speed byte hiện hành (0x40..0x4F)
 
   // Meccano MAX motor control
   MeccaChannel*  channelMOTOR;

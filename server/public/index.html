@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot MAX Controller</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 Robot MAX Controller</h1>
+            <div class="status">
+                <div class="status-indicator" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Đang kết nối...</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div class="control-panel">
+                <h2>Điều khiển bánh xe</h2>
+                
+                <div class="joysticks-container">
+                    <div class="joystick-wrapper">
+                        <h3>Bánh xe trái</h3>
+                        <div class="joystick" id="leftJoystick">
+                            <div class="joystick-knob" id="leftKnob"></div>
+                        </div>
+                        <div class="joystick-value" id="leftValue">0%</div>
+                    </div>
+
+                    <div class="joystick-wrapper">
+                        <h3>Bánh xe phải</h3>
+                        <div class="joystick" id="rightJoystick">
+                            <div class="joystick-knob" id="rightKnob"></div>
+                        </div>
+                        <div class="joystick-value" id="rightValue">0%</div>
+                    </div>
+                </div>
+
+                <div class="control-info">
+                    <div class="info-item">
+                        <span class="label">Tốc độ trái:</span>
+                        <span class="value" id="leftSpeed">0%</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Tốc độ phải:</span>
+                        <span class="value" id="rightSpeed">0%</span>
+                    </div>
+                </div>
+
+                <div class="emergency-stop">
+                    <button id="emergencyStop" class="stop-button">🛑 DỪNG KHẨN CẤP</button>
+                </div>
+            </div>
+
+            <div class="log-panel">
+                <h3>Nhật ký hoạt động</h3>
+                <div class="log-container" id="logContainer">
+                    <div class="log-entry">Hệ thống đã sẵn sàng</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="controller.js"></script>
+</body>
+</html>

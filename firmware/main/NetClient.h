@@ -1,3 +1,4 @@
+// firmware/src/net/NetClient.h
 #pragma once
 
 #include <Arduino.h>
@@ -9,24 +10,56 @@
 
 class TaskRunner;
 
+// =========================
+// WS/Network Tunables (used by .cpp)
+// =========================
+#ifndef WS_RECONNECT_BASE_MS
+#define WS_RECONNECT_BASE_MS 1000     // base reconnect delay
+#endif
+
+#ifndef WS_RECONNECT_MAX_MS
+#define WS_RECONNECT_MAX_MS 10000     // max backoff
+#endif
+
+#ifndef WS_HEARTBEAT_INTERVAL_MS
+#define WS_HEARTBEAT_INTERVAL_MS 15000  // ws.enableHeartbeat(pingEveryMs, ...)
+#endif
+
+#ifndef WS_HEARTBEAT_TIMEOUT_MS
+#define WS_HEARTBEAT_TIMEOUT_MS 3000    // time to wait for PONG
+#endif
+
+#ifndef WS_HEARTBEAT_TRIES
+#define WS_HEARTBEAT_TRIES 2            // fail after N missed PONGs
+#endif
+
 class NetClient {
  public:
   NetClient();
+
+  // Lấy HOST/PORT/PATH từ Config.h bên trong .cpp
   void begin(TaskRunner* runner);
   void loop();
 
+  // ==== Outbound events to server ====
   void sendAck(const String& taskId);
   void sendProgress(const String& taskId, uint8_t pct, const String& note);
   void sendDone(const String& taskId);
   void sendError(const String& taskId, const String& message);
 
  private:
+  // ==== WS state ====
   WebSocketsClient ws;
   TaskRunner* runner;
   bool connected;
   uint32_t lastConnectAttempt;
   uint32_t reconnectDelay;
 
+  // Static trampoline vì WebSocketsClient callback là C-style function ptr
+  static NetClient* s_instance;
+  static void onWsEventThunk(WStype_t type, uint8_t* payload, size_t length);
+
+  // ==== Internal helpers ====
   void connect();
   void scheduleReconnect();
   void handleEvent(WStype_t type, uint8_t* payload, size_t length);

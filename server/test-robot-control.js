@@ -19,6 +19,7 @@
 
 const axios = require('axios');
 const readline = require('readline');
+const { v4: uuidv4 } = require('uuid');
 
 // Configuration
 const SERVER_HOST = '192.168.1.6';
@@ -74,8 +75,9 @@ async function makeRequest(method, path, data = null) {
 
 async function sendTasks(tasks, mode = 'replace') {
     try {
+        const tasksWithIds = tasks.map(t => ({ ...t, taskId: uuidv4() }));
         const endpoint = mode === 'replace' ? '/robot/tasks/replace' : '/robot/tasks/enqueue';
-        const response = await makeRequest('POST', endpoint, { tasks });
+        const response = await makeRequest('POST', endpoint, { tasks: tasksWithIds });
         console.log(response.data);
         if (response.status === 202) {
             log(`✓ Tasks sent successfully (${mode} mode)`, 'green');
@@ -157,36 +159,32 @@ async function testBasicMovement() {
         left: 50,
         right: 50,
         durationMs: 1000
-    }]);
+    }], "enqueue");
 
-    await sleep(1000);
     await sendTasks([{
-        taskId: 'forward-1',
+        taskId: 'forward-2',
         device: 'wheels',
         type: 'drive',
         left: -100,
         right: -100,
         durationMs: 1000
-    }]);
-    await sleep(1000);
+    }], "enqueue");
     await sendTasks([{
-        taskId: 'forward-1',
+        taskId: 'forward-3',
         device: 'wheels',
         type: 'drive',
         left: -100,
         right: 100,
         durationMs: 1000
-    }]);
-    await sleep(1000);
+    }], "enqueue");
     await sendTasks([{
-        taskId: 'forward-1',
+        taskId: 'forward-4',
         device: 'wheels',
         type: 'drive',
         left: 100,
         right: -100,
-        durationMs: 10000
-    }]);
-    await sleep(1000);
+        durationMs: 5000
+    }], "enqueue");
     // Backward movement
     // log('Moving backward...', 'blue');
     // await sendTasks([{
@@ -209,7 +207,7 @@ async function testBasicMovement() {
         left: 0,
         right: 0,
         durationMs: 10
-    }]);
+    }], "enqueue");
 }
 
 async function testTurning() {

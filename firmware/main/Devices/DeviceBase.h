@@ -15,4 +15,8 @@ class DeviceBase {
   virtual bool isCompleted(uint32_t now) const = 0;
   virtual uint8_t progress(uint32_t now) const = 0;
   virtual String currentTaskId() const = 0;
+
+  // Optional: allow devices to update an in-flight task with new parameters.
+  // Default returns false (not supported).
+  virtual bool tryUpdate(const TaskEnvelope& task, uint32_t now) { (void)task; (void)now; return false; }
 };

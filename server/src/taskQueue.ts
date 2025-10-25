@@ -18,8 +18,6 @@ function describeTask(task: AnyTask): string {
       const duration = task.durationMs ?? 1000;
       return `${task.device}: drive L=${task.left} R=${task.right} ${duration}ms (taskId=${task.taskId})`;
     }
-    default:
-      return `${task.device}: ${task.type} (taskId=${task.taskId})`;
   }
 }
 

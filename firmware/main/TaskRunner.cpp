@@ -132,6 +132,13 @@ void TaskRunner::acceptTasks(const std::vector<TaskEnvelope>& tasks, bool enqueu
       clearDevice(*batch.state, now, "replaced");
     }
     for (const TaskEnvelope& task : *batch.list) {
+      // Nếu device đang chạy và hỗ trợ tryUpdate (đặc biệt cho wheels), thì ưu tiên cập nhật trực tiếp
+      if (enqueueMode && batch.state->device->isRunning()) {
+        if (batch.state->device->tryUpdate(task, now)) {
+          // đã cập nhật inline, không cần xếp hàng
+          continue;
+        }
+      }
       batch.state->queue.push(task);
     }
     if (!batch.state->device->isRunning()) {

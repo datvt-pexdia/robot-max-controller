@@ -1,9 +1,8 @@
 import { AnyTask } from './models';
-import { v4 as uuid } from 'uuid';
 
 export function sampleWheelsDrive(durationMs = 1500, left = 60, right = 60): AnyTask {
   return {
-    taskId: uuid(),
+    taskId: `sample-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     device: 'wheels',
     type: 'drive',
     left,
@@ -14,7 +13,7 @@ export function sampleWheelsDrive(durationMs = 1500, left = 60, right = 60): Any
 
 export function sampleArmMove(angle = 120): AnyTask {
   return {
-    taskId: uuid(),
+    taskId: `sample-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     device: 'arm',
     type: 'moveAngle',
     angle
@@ -23,7 +22,7 @@ export function sampleArmMove(angle = 120): AnyTask {
 
 export function sampleNeckMove(angle = 80): AnyTask {
   return {
-    taskId: uuid(),
+    taskId: `sample-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     device: 'neck',
     type: 'moveAngle',
     angle
