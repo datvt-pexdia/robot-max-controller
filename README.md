@@ -159,8 +159,8 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 - **Replace vs enqueue:** replace cancels current + future tasks for each device; enqueue preserves the current task and appends to the queue.
 - **Task lifecycle callbacks:** the ESP responds with `ack`, `progress`, `done`, or `error` messages for each task so the server always knows the state.
 - **Robust reconnects:** Wi-Fi and WebSocket connections auto-retry with exponential backoff (1s → 5s). When the socket drops, all in-flight tasks are canceled to prevent desynchronisation.
-- **Heartbeats:** the server pings the ESP every 10s and treats missing pongs (>20s) as a disconnect.
-- **Wheels Continuous Mode:** the wheels device runs a continuous task that always sends signals to the motors every 10ms. Initially sends STOP signals, switches to direction signals when moving, and returns to STOP when idle. See `firmware/main/WHEELS_CONTINUOUS_MODE.md` for details.
+- **Heartbeats:** the server pings the ESP every 15s and treats missing pongs (>30s) as a disconnect.
+- **Wheels Continuous Mode:** the wheels device runs a continuous task that always sends signals to the motors every 33ms (~30 Hz). Initially sends STOP signals, switches to direction signals when moving, and returns to STOP when idle. See `firmware/main/WHEELS_CONTINUOUS_MODE.md` for details.
 
 ## Troubleshooting
 
