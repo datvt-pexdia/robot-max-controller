@@ -2,6 +2,12 @@
 #pragma once
 #include <Arduino.h>
 #include "../TaskTypes.h"
+#include "../Config.h"
+
+#if !SIMULATION
+  #include <MeccaChannel.h>
+  #include <MeccaMaxDrive.h>
+#endif
 
 class WheelsDevice {
 public:
@@ -20,6 +26,15 @@ private:
   uint32_t lastCmdAt_ = 0;            // để soft-stop
   uint32_t deadlineAt_ = 0;           // nếu durationMs > 0
 
+#if !SIMULATION
+  MeccaChannel*  maxBus_ = nullptr;
+  MeccaMaxDrive* drive_   = nullptr;
+#endif
+
   void applySlewToward(float &cur, float tgt);
   void driveMotors(float normL, float normR); // gắn driver thật ở đây
+
+  // helpers
+  uint8_t speedCodeFromNorm(float v) const;         // → 0x40 hoặc 0x42..0x4F
+  uint8_t dirCodeForWheel(bool isLeft, float v) const; // → 0x2n (CW) / 0x3n (CCW) tuỳ cấu hình forward
 };

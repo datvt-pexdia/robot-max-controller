@@ -8,7 +8,31 @@
 #define WS_PATH        "/robot"
 
 // ==== Modes ====
-#define SIMULATION     true   // true: log hành vi; false: điều khiển phần cứng thật
+#undef  SIMULATION
+#define SIMULATION     false   // true: log hành vi; false: điều khiển phần cứng thật
+
+// ==== Meccano M.A.X bus wiring ====
+// Dây trắng (chân D) từ MAX → chân ESP8266
+#ifndef MAX_DATA_PIN
+  #define MAX_DATA_PIN  D4      // đổi nếu bạn dùng chân khác
+#endif
+
+// Vị trí thiết bị motor trên chain (thứ tự device trên bus MAX)
+#ifndef MAX_LEFT_POS
+  #define MAX_LEFT_POS  0
+#endif
+#ifndef MAX_RIGHT_POS
+  #define MAX_RIGHT_POS  1
+#endif
+
+// Hướng "tiến" mặc định cho từng bánh (tuỳ cách gắn bánh của bạn)
+// Thường: TRÁI tiến = CCW, PHẢI tiến = CW. Nếu đẩy tiến mà xe lùi, đảo 0/1 tương ứng.
+#ifndef LEFT_FORWARD_IS_CCW
+  #define LEFT_FORWARD_IS_CCW   1  // 1: CCW là tiến, 0: CW là tiến
+#endif
+#ifndef RIGHT_FORWARD_IS_CCW
+  #define RIGHT_FORWARD_IS_CCW  0  // 1: CCW là tiến, 0: CW là tiến
+#endif
 
 // ==== Wheels Continuous Mode tuning ====
 #define WHEELS_TICK_MS            33     // ~30Hz
