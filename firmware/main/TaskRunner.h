@@ -1,47 +1,20 @@
+// firmware/src/TaskRunner.h
 #pragma once
-
 #include <Arduino.h>
-#include <queue>
-#include <vector>
-
-#include "TaskTypes.h"
-#include "Devices/ArmDevice.h"
-#include "Devices/NeckDevice.h"
 #include "Devices/WheelsDevice.h"
 
-class NetClient;
-
 class TaskRunner {
- public:
-  TaskRunner();
-  void setNetClient(NetClient* client);
-  void tick(uint32_t now);
-  void replaceTasks(const std::vector<TaskEnvelope>& tasks);
-  void enqueueTasks(const std::vector<TaskEnvelope>& tasks);
-  void cancelDevice(const String& device);
-  void cancelAll(const char* reason);
-  void onDisconnect();
-  
-  // Truy cập wheels device để khởi động continuous mode
-  WheelsDevice* getWheelsDevice() { return &wheels; }
+public:
+  void begin();
+  void loop(); // gọi trong Arduino loop()
 
- private:
-  struct DeviceState {
-    DeviceBase* device;
-    std::queue<TaskEnvelope> queue;
-    uint32_t lastProgressSent;
-  };
+  // Hooks từ NetClient
+  void handleDriveTask(int8_t leftPct, int8_t rightPct, uint32_t durationMs);
 
-  ArmDevice arm;
-  NeckDevice neck;
-  WheelsDevice wheels;
-  DeviceState armState;
-  DeviceState neckState;
-  DeviceState wheelsState;
-  NetClient* netClient;
+  // Khi WS rớt
+  void onDisconnected();
 
-  DeviceState* stateForDevice(const String& device);
-  void startNext(DeviceState& state, uint32_t now);
-  void clearDevice(DeviceState& state, uint32_t now, const char* reason);
-  void acceptTasks(const std::vector<TaskEnvelope>& tasks, bool enqueueMode, uint32_t now);
+private:
+  WheelsDevice wheels_;
+  uint32_t lastWheelsTick_ = 0;
 };

@@ -3,8 +3,10 @@ import WebSocket, { WebSocketServer } from 'ws';
 import {
   HTTP_PORT,
   WS_PATH,
-  WS_PING_INTERVAL_MS,
-  WS_PONG_TIMEOUT_MS,
+  WS_HEARTBEAT_MS,
+  WS_LIVENESS_GRACE_MS,
+  WS_MAX_PAYLOAD,
+  WS_PERMESSAGE_DEFLATE,
 } from './config';
 import { espLog, taskLog, wsLog } from './logger';
 import {
@@ -49,7 +51,14 @@ export class WsHub {
   private browserConnectionHandler?: (socket: WebSocket) => void;
 
   constructor(server: http.Server) {
-    this.wss = new WebSocketServer({ server, path: WS_PATH });
+    this.wss = new WebSocketServer({
+      server,
+      path: WS_PATH,
+      perMessageDeflate: WS_PERMESSAGE_DEFLATE,
+      maxPayload: WS_MAX_PAYLOAD,
+      noServer: false,
+      clientTracking: true,
+    });
     this.wss.on('connection', (socket, req) => this.handleConnection(socket, req));
     wsLog(`WebSocket hub ready on ws://0.0.0.0:${HTTP_PORT}${WS_PATH}`);
   }
@@ -176,6 +185,11 @@ export class WsHub {
     this.espSocket = socket;
     wsLog('ESP connected from', req.socket.remoteAddress);
 
+    // IMPORTANT: enable TCP_NODELAY on underlying socket for low-latency
+    try {
+      (socket as any)._socket?.setNoDelay?.(true);
+    } catch {}
+
     // Đánh dấu đã nhận "pong" ngay lúc connect để tránh timeout sớm
     this.lastPong = Date.now();
 
@@ -255,8 +269,8 @@ export class WsHub {
 
   /**
    * Heartbeat:
-   * - Gửi protocol-level ping (socket.ping()) mỗi WS_PING_INTERVAL_MS.
-   * - Nếu quá WS_PONG_TIMEOUT_MS không thấy pong (protocol hoặc JSON), terminate.
+   * - Gửi protocol-level ping (socket.ping()) mỗi WS_HEARTBEAT_MS (15s).
+   * - Nếu quá WS_LIVENESS_GRACE_MS (30s) không thấy pong, terminate.
    */
   private startHeartbeat(): void {
     if (this.heartbeatTimer) {
@@ -267,21 +281,24 @@ export class WsHub {
         return;
       }
       const now = Date.now();
-      if (now - this.lastPong > WS_PONG_TIMEOUT_MS) {
-        wsLog('Pong timeout, terminating connection');
+      
+      // Liveness check: if no pong within grace period, terminate
+      if (now - this.lastPong > WS_LIVENESS_GRACE_MS) {
+        wsLog('[WS] no pong within grace; terminating socket');
         try {
           this.espSocket.terminate();
         } catch {}
+        this.espSocket = undefined;
         return;
       }
 
-      // Protocol-level ping (ít tốn băng thông hơn JSON ping)
+      // Protocol-level ping (browsers auto-pong)
       try {
         this.espSocket.ping();
       } catch (e) {
-        wsLog('Failed to send ping', e);
+        wsLog(`[WS] ping error: ${(e as Error).message}`);
       }
-    }, WS_PING_INTERVAL_MS);
+    }, WS_HEARTBEAT_MS);
   }
 
   private sendEnvelope(envelope: OutboundEnvelope): void {
