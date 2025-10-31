@@ -45,10 +45,20 @@ export class WsHub {
   private replaceBuffer: AnyTask[] = [];
   private replaceTimer?: NodeJS.Timeout;
 
+  // Callback để xử lý browser connections (UI)
+  private browserConnectionHandler?: (socket: WebSocket) => void;
+
   constructor(server: http.Server) {
     this.wss = new WebSocketServer({ server, path: WS_PATH });
     this.wss.on('connection', (socket, req) => this.handleConnection(socket, req));
     wsLog(`WebSocket hub ready on ws://0.0.0.0:${HTTP_PORT}${WS_PATH}`);
+  }
+
+  /**
+   * Đăng ký handler cho browser connections
+   */
+  setBrowserConnectionHandler(handler: (socket: WebSocket) => void): void {
+    this.browserConnectionHandler = handler;
   }
 
   // ======================
@@ -141,6 +151,21 @@ export class WsHub {
   }
 
   private handleConnection(socket: WebSocket, req: http.IncomingMessage): void {
+    // Phân biệt browser vs ESP dựa vào User-Agent
+    const userAgent = req.headers['user-agent'] || '';
+    const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari');
+    
+    wsLog(`Connection from ${req.socket.remoteAddress}, User-Agent: ${userAgent.substring(0, 50)}...`);
+    wsLog(`Detected as: ${isBrowser ? 'BROWSER (UI)' : 'ESP (Device)'}`);
+
+    // Nếu là browser và có handler, delegate cho handler đó
+    if (isBrowser && this.browserConnectionHandler) {
+      wsLog('Delegating to browser connection handler');
+      this.browserConnectionHandler(socket);
+      return;
+    }
+
+    // Xử lý ESP connection (logic cũ)
     // Chỉ cho phép 1 ESP kết nối
     if (this.espSocket && this.espSocket.readyState === WebSocket.OPEN) {
       wsLog('Rejecting additional ESP connection from', req.socket.remoteAddress);

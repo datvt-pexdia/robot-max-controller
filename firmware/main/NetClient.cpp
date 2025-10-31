@@ -147,6 +147,13 @@ void NetClient::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
       reconnectDelay = WS_RECONNECT_BASE_MS;
       Serial.println("[NET] WebSocket CONNECTED");
       sendHello();
+      
+      // Khởi động continuous task cho wheels SAU KHI WebSocket đã kết nối
+      // Tránh block trong setup() làm ảnh hưởng đến kết nối
+      if (runner) {
+        Serial.println("[NET] Starting continuous wheels task...");
+        runner->getWheelsDevice()->startContinuousTask(millis());
+      }
       break;
     }
     case WStype_DISCONNECTED: {

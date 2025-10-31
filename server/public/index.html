@@ -20,35 +20,34 @@
 
         <main>
             <div class="control-panel">
-                <h2>Điều khiển bánh xe</h2>
+                <h2>Điều khiển robot</h2>
                 
-                <div class="joysticks-container">
-                    <div class="joystick-wrapper">
-                        <h3>Bánh xe trái</h3>
-                        <div class="joystick" id="leftJoystick">
-                            <div class="joystick-knob" id="leftKnob"></div>
-                        </div>
-                        <div class="joystick-value" id="leftValue">0%</div>
+                <!-- Cross Control Layout -->
+                <div class="cross-control">
+                    <!-- Top: Tiến -->
+                    <button id="btnForward" class="cross-button forward">
+                        ⬆ Tiến
+                    </button>
+                    
+                    <!-- Middle Row: Quay trái - Empty - Quay phải -->
+                    <div class="cross-row">
+                        <button id="btnTurnLeft" class="cross-button turn-left">
+                            ⬅ Quay trái
+                        </button>
+                        <div class="cross-center"></div>
+                        <button id="btnTurnRight" class="cross-button turn-right">
+                            ➡ Quay phải
+                        </button>
                     </div>
-
-                    <div class="joystick-wrapper">
-                        <h3>Bánh xe phải</h3>
-                        <div class="joystick" id="rightJoystick">
-                            <div class="joystick-knob" id="rightKnob"></div>
-                        </div>
-                        <div class="joystick-value" id="rightValue">0%</div>
-                    </div>
+                    
+                    <!-- Bottom: Lùi -->
+                    <button id="btnBackward" class="cross-button backward">
+                        ⬇ Lùi
+                    </button>
                 </div>
 
-                <div class="control-info">
-                    <div class="info-item">
-                        <span class="label">Tốc độ trái:</span>
-                        <span class="value" id="leftSpeed">0%</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="label">Tốc độ phải:</span>
-                        <span class="value" id="rightSpeed">0%</span>
-                    </div>
+                <div class="info-box">
+                    <p>💡 Giữ nút = di chuyển, Nhả nút = dừng</p>
                 </div>
 
                 <div class="emergency-stop">

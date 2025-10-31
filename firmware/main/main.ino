@@ -42,6 +42,10 @@ void setup() {
   connectWifi();
   taskRunner.setNetClient(&netClient);
   netClient.begin(&taskRunner);
+  
+  // Khởi động continuous task cho wheels SAU KHI đã kết nối WebSocket
+  // Để tránh block quá lâu trong setup()
+  Serial.println("[MAIN] Continuous wheels task will start after WebSocket connects...");
 }
 
 void loop() {

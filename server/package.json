@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:wheels": "node test-wheels-continuous-api.js",
+    "test:wheels:list": "node test-wheels-continuous-api.js --list",
+    "test:wheels:true": "node test-wheels-true-continuous.js",
+    "test:wheels:forward": "node test-wheels-true-continuous.js --forward",
+    "test:wheels:stop": "node test-wheels-true-continuous.js --stop"
   },
   "dependencies": {
     "axios": "^1.12.2",

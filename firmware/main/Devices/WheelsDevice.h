@@ -9,7 +9,11 @@
  * WheelsDevice
  * - Điều khiển 2 bánh của Meccano MAX qua MeccaChannel (1-wire).
  * - Quy ước dây: communicateAllByte(b1, b2, ...) => b1 = RIGHT, b2 = LEFT.
- * - Hỗ trợ: chạy từng bánh độc lập (bánh = 0 => speed=0x40, dir=0x20).
+ * - Continuous mode: Task liên tục không dừng, luôn gửi tín hiệu:
+ *   + Ban đầu: gửi STOP liên tục
+ *   + Khi di chuyển: gửi speed một lần, sau đó gửi direction liên tục
+ *   + Khi thay đổi tốc độ: gửi speed mới, tiếp tục gửi direction
+ *   + Khi dừng: quay về gửi STOP liên tục
  */
 class WheelsDevice : public DeviceBase {
  public:
@@ -27,6 +31,9 @@ class WheelsDevice : public DeviceBase {
   String currentTaskId() const override;
   bool tryUpdate(const TaskEnvelope& task, uint32_t now) override;
 
+  // Khởi động continuous task (task liên tục không dừng)
+  void startContinuousTask(uint32_t now);
+
  private:
   // Trạng thái hiện tại của tác vụ
   TaskEnvelope current;
@@ -38,6 +45,11 @@ class WheelsDevice : public DeviceBase {
   uint32_t    lastCommandMs;   // thời điểm cuối gửi lệnh motor (keep-alive)
   uint8_t     leftSpeedByte;   // speed byte hiện hành (0x40..0x4F)
   uint8_t     rightSpeedByte;  // speed byte hiện hành (0x40..0x4F)
+
+  // Continuous mode state
+  bool        continuousMode;  // true = task liên tục không dừng
+  bool        isMoving;        // true = đang di chuyển, false = đang dừng
+  bool        needSpeedUpdate; // true = cần gửi speed byte
 
   // Meccano MAX motor control
   MeccaChannel*  channelMOTOR;

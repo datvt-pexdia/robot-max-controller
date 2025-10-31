@@ -1,387 +1,252 @@
 /**
- * Tank Drive Controller - Dual Joystick Control
- * Implements the logic spec for UI → Server → Device flow
+ * Simple Cross Control - 4 buttons in cross layout
+ * Forward, Backward, Turn Left, Turn Right
  */
 
-class TankDriveController {
+class SimpleButtonController {
     constructor() {
         // DOM elements
-        this.leftJoystick = document.getElementById('leftJoystick');
-        this.rightJoystick = document.getElementById('rightJoystick');
-        this.leftKnob = document.getElementById('leftKnob');
-        this.rightKnob = document.getElementById('rightKnob');
-        this.leftValue = document.getElementById('leftValue');
-        this.rightValue = document.getElementById('rightValue');
-        this.leftSpeed = document.getElementById('leftSpeed');
-        this.rightSpeed = document.getElementById('rightSpeed');
         this.connectionStatus = document.getElementById('connectionStatus');
         this.statusDot = document.querySelector('.status-dot');
         this.statusText = document.querySelector('.status-text');
         this.logContainer = document.getElementById('logContainer');
         this.emergencyStop = document.getElementById('emergencyStop');
 
-        // Normalization parameters (configurable)
-        this.DZ = 0.06;          // Dead-zone threshold
-        this.SR_UP = 3.0;        // Slew rate up (per second)
-        this.SR_DOWN = 6.0;      // Slew rate down (per second)
-        this.QUANTIZE_LEVELS = 12; // Discrete levels
-
-        // State
-        this.rawLeft = 0.0;
-        this.rawRight = 0.0;
-        this.normLeft = 0.0;
-        this.normRight = 0.0;
-        this.prevLeft = 0.0;
-        this.prevRight = 0.0;
-        this.seq = 0;
-        this.sessionStart = performance.now();
-        this.lastSendTime = 0;
-        this.lastKeepaliveTime = 0;
+        // Button states
+        this.btnForwardPressed = false;
+        this.btnBackwardPressed = false;
+        this.btnTurnLeftPressed = false;
+        this.btnTurnRightPressed = false;
 
         // Connection
-        this.ws = null;
-        this.connected = false;
-        this.reconnectDelay = 500;
-        this.maxReconnectDelay = 8000;
-
-        // Input state
-        this.isDraggingLeft = false;
-        this.isDraggingRight = false;
-
-        // Timers
-        this.tickTimer = null;
-        this.keepaliveTimer = null;
+        this.isConnected = false;
+        this.apiBaseUrl = window.location.origin;
 
         this.init();
     }
 
     init() {
-        this.setupJoysticks();
+        this.setupButtons();
         this.setupEmergencyStop();
         this.setupPageUnload();
-        this.connectWebSocket();
-        this.startTickLoop();
+        this.checkConnection();
+        this.startConnectionCheck();
         this.log('Hệ thống đã khởi tạo');
     }
 
-    // ========================================
-    // NORMALIZATION PIPELINE
-    // ========================================
+    setupButtons() {
+        // Forward button
+        document.getElementById('btnForward').addEventListener('mousedown', () => this.onButtonDown('forward'));
+        document.getElementById('btnForward').addEventListener('mouseup', () => this.onButtonUp('forward'));
+        document.getElementById('btnForward').addEventListener('mouseleave', () => this.onButtonUp('forward'));
+        document.getElementById('btnForward').addEventListener('touchstart', (e) => { e.preventDefault(); this.onButtonDown('forward'); });
+        document.getElementById('btnForward').addEventListener('touchend', (e) => { e.preventDefault(); this.onButtonUp('forward'); });
 
-    normalize(vRaw, prevNorm, dt) {
-        // 1. Clamp to [-1, 1]
-        let v1 = Math.max(-1.0, Math.min(1.0, vRaw));
+        // Backward button
+        document.getElementById('btnBackward').addEventListener('mousedown', () => this.onButtonDown('backward'));
+        document.getElementById('btnBackward').addEventListener('mouseup', () => this.onButtonUp('backward'));
+        document.getElementById('btnBackward').addEventListener('mouseleave', () => this.onButtonUp('backward'));
+        document.getElementById('btnBackward').addEventListener('touchstart', (e) => { e.preventDefault(); this.onButtonDown('backward'); });
+        document.getElementById('btnBackward').addEventListener('touchend', (e) => { e.preventDefault(); this.onButtonUp('backward'); });
 
-        // 2. Dead-zone
-        let v2;
-        if (Math.abs(v1) <= this.DZ) {
-            v2 = 0.0;
-        } else {
-            const sign = v1 > 0 ? 1 : -1;
-            v2 = sign * ((Math.abs(v1) - this.DZ) / (1.0 - this.DZ));
-        }
+        // Turn left button
+        document.getElementById('btnTurnLeft').addEventListener('mousedown', () => this.onButtonDown('turnLeft'));
+        document.getElementById('btnTurnLeft').addEventListener('mouseup', () => this.onButtonUp('turnLeft'));
+        document.getElementById('btnTurnLeft').addEventListener('mouseleave', () => this.onButtonUp('turnLeft'));
+        document.getElementById('btnTurnLeft').addEventListener('touchstart', (e) => { e.preventDefault(); this.onButtonDown('turnLeft'); });
+        document.getElementById('btnTurnLeft').addEventListener('touchend', (e) => { e.preventDefault(); this.onButtonUp('turnLeft'); });
 
-        // 3. Slew-rate limiting
-        const delta = v2 - prevNorm;
-        const isIncreasing = Math.abs(v2) > Math.abs(prevNorm);
-        const maxChange = (isIncreasing ? this.SR_UP : this.SR_DOWN) * dt;
+        // Turn right button
+        document.getElementById('btnTurnRight').addEventListener('mousedown', () => this.onButtonDown('turnRight'));
+        document.getElementById('btnTurnRight').addEventListener('mouseup', () => this.onButtonUp('turnRight'));
+        document.getElementById('btnTurnRight').addEventListener('mouseleave', () => this.onButtonUp('turnRight'));
+        document.getElementById('btnTurnRight').addEventListener('touchstart', (e) => { e.preventDefault(); this.onButtonDown('turnRight'); });
+        document.getElementById('btnTurnRight').addEventListener('touchend', (e) => { e.preventDefault(); this.onButtonUp('turnRight'); });
+    }
+
+    onButtonDown(button) {
+        // Reset all buttons
+        this.btnForwardPressed = false;
+        this.btnBackwardPressed = false;
+        this.btnTurnLeftPressed = false;
+        this.btnTurnRightPressed = false;
         
-        let v3;
-        if (Math.abs(delta) <= maxChange) {
-            v3 = v2;
-        } else {
-            v3 = prevNorm + Math.sign(delta) * maxChange;
-        }
-
-        // 4. Quantization (optional)
-        if (this.QUANTIZE_LEVELS > 1) {
-            const level = Math.round(v3 * this.QUANTIZE_LEVELS);
-            v3 = level / this.QUANTIZE_LEVELS;
-        }
-
-        return v3;
-    }
-
-    // ========================================
-    // TICK LOOP (40 Hz = 25ms)
-    // ========================================
-
-    startTickLoop() {
-        const TICK_INTERVAL = 25; // 25ms = 40 Hz
-        const KEEPALIVE_INTERVAL = 150; // 150ms keepalive
-
-        this.tickTimer = setInterval(() => {
-            const now = performance.now();
-            const dt = 0.025; // 25ms in seconds
-
-            // Normalize inputs
-            this.normLeft = this.normalize(this.rawLeft, this.prevLeft, dt);
-            this.normRight = this.normalize(this.rawRight, this.prevRight, dt);
-
-            // Check if changed significantly or keepalive due
-            const changed = Math.abs(this.normLeft - this.prevLeft) > 0.01 ||
-                          Math.abs(this.normRight - this.prevRight) > 0.01;
-            const keepaliveDue = (now - this.lastKeepaliveTime) >= KEEPALIVE_INTERVAL;
-
-            if (changed || keepaliveDue || (now - this.lastSendTime) >= TICK_INTERVAL) {
-                this.sendDriveIntent();
-                this.prevLeft = this.normLeft;
-                this.prevRight = this.normRight;
-            }
-
-            // Update UI
-            this.updateDisplay();
-        }, TICK_INTERVAL);
-    }
-
-    // ========================================
-    // WEBSOCKET COMMUNICATION
-    // ========================================
-
-    connectWebSocket() {
-        const wsUrl = `ws://${window.location.host}/robot`;
-        this.log(`Connecting to ${wsUrl}...`);
-
-        try {
-            this.ws = new WebSocket(wsUrl);
-            
-            this.ws.onopen = () => {
-                this.connected = true;
-                this.reconnectDelay = 500;
-                this.statusDot.classList.add('connected');
-                this.statusText.textContent = 'Đã kết nối';
-                this.log('WebSocket connected', 'success');
-
-                // Send hello
-                this.ws.send(JSON.stringify({
-                    type: 'hello',
-                    role: 'ui',
-                    version: '1.0'
-                }));
-            };
-
-            this.ws.onclose = () => {
-                this.connected = false;
-                this.statusDot.classList.remove('connected');
-                this.statusText.textContent = 'Đang kết nối lại...';
-                this.log('WebSocket disconnected', 'warning');
-                this.scheduleReconnect();
-            };
-
-            this.ws.onerror = (err) => {
-                this.log(`WebSocket error: ${err}`, 'error');
-            };
-
-            this.ws.onmessage = (event) => {
-                try {
-                    const msg = JSON.parse(event.data);
-                    this.handleServerMessage(msg);
-                } catch (e) {
-                    this.log(`Invalid message: ${e}`, 'error');
-                }
-            };
-        } catch (e) {
-            this.log(`Failed to connect: ${e}`, 'error');
-            this.scheduleReconnect();
-        }
-    }
-
-    scheduleReconnect() {
-        setTimeout(() => {
-            this.connectWebSocket();
-        }, this.reconnectDelay);
+        // Set pressed button
+        if (button === 'forward') this.btnForwardPressed = true;
+        else if (button === 'backward') this.btnBackwardPressed = true;
+        else if (button === 'turnLeft') this.btnTurnLeftPressed = true;
+        else if (button === 'turnRight') this.btnTurnRightPressed = true;
         
-        // Exponential backoff
-        this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+        this.updateButtonVisuals();
+        
+        // Gửi lệnh ngay khi bấm
+        const { left, right } = this.getCurrentValues();
+        this.sendCommand(left, right);
+        
+        this.log(`${this.getButtonName(button)} - Bấm`, 'info');
     }
 
-    handleServerMessage(msg) {
-        switch (msg.type) {
-            case 'controller_taken':
-                this.log('Another controller took over', 'warning');
-                break;
-            case 'pong':
-                // RTT telemetry
-                break;
-            default:
-                this.log(`Unknown message type: ${msg.type}`);
+    onButtonUp(button) {
+        // Reset all buttons
+        this.btnForwardPressed = false;
+        this.btnBackwardPressed = false;
+        this.btnTurnLeftPressed = false;
+        this.btnTurnRightPressed = false;
+        
+        this.updateButtonVisuals();
+        
+        // Gửi lệnh stop
+        this.sendCommand(0, 0);
+        
+        this.log('Nhả nút - Dừng', 'info');
+    }
+
+    getButtonName(button) {
+        const names = {
+            'forward': 'Tiến',
+            'backward': 'Lùi',
+            'turnLeft': 'Quay trái',
+            'turnRight': 'Quay phải'
+        };
+        return names[button] || button;
+    }
+
+    updateButtonVisuals() {
+        document.getElementById('btnForward').classList.toggle('pressed', this.btnForwardPressed);
+        document.getElementById('btnBackward').classList.toggle('pressed', this.btnBackwardPressed);
+        document.getElementById('btnTurnLeft').classList.toggle('pressed', this.btnTurnLeftPressed);
+        document.getElementById('btnTurnRight').classList.toggle('pressed', this.btnTurnRightPressed);
+    }
+
+    getCurrentValues() {
+        // Forward: left=100, right=100
+        if (this.btnForwardPressed) {
+            return { left: 100, right: 100 };
         }
+        
+        // Backward: left=-100, right=-100
+        if (this.btnBackwardPressed) {
+            return { left: -100, right: -100 };
+        }
+        
+        // Turn Left: left=-100, right=100 (phải tiến, trái lùi)
+        if (this.btnTurnLeftPressed) {
+            return { left: -100, right: 100 };
+        }
+        
+        // Turn Right: left=100, right=-100 (trái tiến, phải lùi)
+        if (this.btnTurnRightPressed) {
+            return { left: 100, right: -100 };
+        }
+        
+        // Stop
+        return { left: 0, right: 0 };
     }
 
-    sendDriveIntent() {
-        if (!this.connected || !this.ws) {
+    async sendCommand(left, right) {
+        if (!this.isConnected) {
             return;
         }
 
-        const now = performance.now();
-        const intent = {
+        const taskId = `control_${Date.now()}`;
+        const task = {
+            taskId: taskId,
+            device: 'wheels',
             type: 'drive',
-            left: this.normLeft,
-            right: this.normRight,
-            seq: ++this.seq,
-            ts: Math.floor(now - this.sessionStart)
+            left: left,
+            right: right,
+            durationMs: 300
         };
 
         try {
-            this.ws.send(JSON.stringify(intent));
-            this.lastSendTime = now;
-            this.lastKeepaliveTime = now;
-            this.log(`→ L=${intent.left.toFixed(2)} R=${intent.right.toFixed(2)} seq=${intent.seq}`, 'success');
-        } catch (e) {
-            this.log(`Send failed: ${e}`, 'error');
+            const response = await fetch(`${this.apiBaseUrl}/robot/tasks/enqueue`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tasks: [task] })
+            });
+
+            if (response.ok) {
+                if (left === 0 && right === 0) {
+                    this.log('🛑 Dừng', 'warning');
+                } else {
+                    let actionName = '';
+                    if (left === 100 && right === 100) actionName = 'Tiến';
+                    else if (left === -100 && right === -100) actionName = 'Lùi';
+                    else if (left === -100 && right === 100) actionName = 'Quay trái';
+                    else if (left === 100 && right === -100) actionName = 'Quay phải';
+                    else actionName = `L=${left} R=${right}`;
+                    
+                    this.log(`${actionName}`, 'success');
+                }
+            } else {
+                this.log(`Lỗi: ${response.status}`, 'error');
+            }
+        } catch (error) {
+            this.log(`Lỗi: ${error.message}`, 'error');
         }
     }
 
-    sendStop() {
-        this.normLeft = 0.0;
-        this.normRight = 0.0;
-        this.prevLeft = 0.0;
-        this.prevRight = 0.0;
-        this.sendDriveIntent();
-        this.log('🛑 STOP sent', 'warning');
-    }
-
-    // ========================================
-    // JOYSTICK INPUT
-    // ========================================
-
-    setupJoysticks() {
-        this.setupJoystick(this.leftJoystick, this.leftKnob, 'left');
-        this.setupJoystick(this.rightJoystick, this.rightKnob, 'right');
-    }
-
-    setupJoystick(joystick, knob, side) {
-        let startY = 0;
-        let startValue = 0;
-
-        const handleStart = (y) => {
-            if (side === 'left') {
-                this.isDraggingLeft = true;
-                startValue = this.rawLeft;
+    async checkConnection() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/robot/status`);
+            if (response.ok) {
+                const status = await response.json();
+                this.isConnected = status.connected;
+                
+                if (this.isConnected) {
+                    this.statusDot.classList.add('connected');
+                    this.statusText.textContent = 'Đã kết nối';
+                    this.log('Kết nối thành công', 'success');
+                } else {
+                    this.statusDot.classList.remove('connected');
+                    this.statusText.textContent = 'Robot offline';
+                    this.log('Robot offline', 'warning');
+                }
             } else {
-                this.isDraggingRight = true;
-                startValue = this.rawRight;
+                this.isConnected = false;
+                this.statusDot.classList.remove('connected');
+                this.statusText.textContent = 'Lỗi kết nối';
+                this.log('Lỗi kết nối', 'error');
             }
-            startY = y;
-            knob.classList.add('active');
-        };
-
-        const handleMove = (y) => {
-            const rect = joystick.getBoundingClientRect();
-            const deltaY = startY - y;
-            const maxDelta = rect.height / 2;
-            
-            let newValue = startValue + (deltaY / maxDelta);
-            newValue = Math.max(-1.0, Math.min(1.0, newValue));
-            
-            if (side === 'left') {
-                this.rawLeft = newValue;
-            } else {
-                this.rawRight = newValue;
-            }
-
-            // Update visual position immediately
-            const position = (newValue + 1.0) / 2.0; // Convert -1..1 to 0..1
-            knob.style.top = `${(1.0 - position) * 100}%`;
-        };
-
-        const handleEnd = () => {
-            if (side === 'left') {
-                this.isDraggingLeft = false;
-                this.rawLeft = 0.0;
-            } else {
-                this.isDraggingRight = false;
-                this.rawRight = 0.0;
-            }
-            knob.classList.remove('active');
-            knob.style.top = '50%';
-        };
-
-        // Mouse events
-        joystick.addEventListener('mousedown', (e) => {
-            handleStart(e.clientY);
-            e.preventDefault();
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if ((side === 'left' && this.isDraggingLeft) || 
-                (side === 'right' && this.isDraggingRight)) {
-                handleMove(e.clientY);
-            }
-        });
-
-        document.addEventListener('mouseup', () => {
-            if ((side === 'left' && this.isDraggingLeft) || 
-                (side === 'right' && this.isDraggingRight)) {
-                handleEnd();
-            }
-        });
-
-        // Touch events
-        joystick.addEventListener('touchstart', (e) => {
-            handleStart(e.touches[0].clientY);
-            e.preventDefault();
-        });
-
-        joystick.addEventListener('touchmove', (e) => {
-            if ((side === 'left' && this.isDraggingLeft) || 
-                (side === 'right' && this.isDraggingRight)) {
-                handleMove(e.touches[0].clientY);
-                e.preventDefault();
-            }
-        });
-
-        joystick.addEventListener('touchend', () => {
-            if ((side === 'left' && this.isDraggingLeft) || 
-                (side === 'right' && this.isDraggingRight)) {
-                handleEnd();
-            }
-        });
+        } catch (error) {
+            this.isConnected = false;
+            this.statusDot.classList.remove('connected');
+            this.statusText.textContent = 'Lỗi kết nối';
+            this.log(`Lỗi: ${error.message}`, 'error');
+        }
     }
 
-    // ========================================
-    // UI UPDATES
-    // ========================================
-
-    updateDisplay() {
-        // Convert normalized values to percentages for display
-        const leftPct = Math.round(this.normLeft * 100);
-        const rightPct = Math.round(this.normRight * 100);
-
-        this.leftValue.textContent = `${leftPct}%`;
-        this.rightValue.textContent = `${rightPct}%`;
-        this.leftSpeed.textContent = `${leftPct}%`;
-        this.rightSpeed.textContent = `${rightPct}%`;
+    startConnectionCheck() {
+        setInterval(() => {
+            this.checkConnection();
+        }, 5000);
     }
-
-    // ========================================
-    // STOP & SAFETY
-    // ========================================
 
     setupEmergencyStop() {
-        this.emergencyStop.addEventListener('click', () => {
-            this.sendStop();
+        this.emergencyStop.addEventListener('click', async () => {
+            this.btnForwardPressed = false;
+            this.btnBackwardPressed = false;
+            this.btnTurnLeftPressed = false;
+            this.btnTurnRightPressed = false;
+            this.updateButtonVisuals();
+            await this.sendCommand(0, 0);
+            this.log('🛑 DỪNG KHẨN CẤP', 'warning');
         });
     }
 
     setupPageUnload() {
-        // Flush STOP on page unload/blur
         window.addEventListener('beforeunload', () => {
-            this.sendStop();
+            this.sendCommand(0, 0);
         });
 
         window.addEventListener('pagehide', () => {
-            this.sendStop();
+            this.sendCommand(0, 0);
         });
 
         window.addEventListener('blur', () => {
-            this.sendStop();
+            this.sendCommand(0, 0);
         });
     }
-
-    // ========================================
-    // LOGGING
-    // ========================================
 
     log(message, type = 'info') {
         const timestamp = new Date().toLocaleTimeString();
@@ -401,6 +266,5 @@ class TankDriveController {
 
 // Initialize the controller when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    window.controller = new TankDriveController();
+    window.controller = new SimpleButtonController();
 });
-

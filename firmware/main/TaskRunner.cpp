@@ -128,14 +128,23 @@ void TaskRunner::acceptTasks(const std::vector<TaskEnvelope>& tasks, bool enqueu
 
   for (auto& batch : batches) {
     if (batch.list->empty()) continue;
+    
+    // Đặc biệt cho wheels: nếu đang trong continuous mode, luôn dùng tryUpdate
+    const bool isWheels = (batch.state == &wheelsState);
+    WheelsDevice* wheelsDevice = isWheels ? static_cast<WheelsDevice*>(batch.state->device) : nullptr;
+    
     if (!enqueueMode) {
       clearDevice(*batch.state, now, "replaced");
     }
     for (const TaskEnvelope& task : *batch.list) {
-      // Nếu device đang chạy và hỗ trợ tryUpdate (đặc biệt cho wheels), thì ưu tiên cập nhật trực tiếp
-      if (enqueueMode && batch.state->device->isRunning()) {
+      // Nếu device đang chạy và hỗ trợ tryUpdate, thì ưu tiên cập nhật trực tiếp
+      if (batch.state->device->isRunning()) {
         if (batch.state->device->tryUpdate(task, now)) {
           // đã cập nhật inline, không cần xếp hàng
+          // Gửi ack ngay vì task đã được xử lý
+          if (netClient) {
+            netClient->sendDone(task.taskId);
+          }
           continue;
         }
       }

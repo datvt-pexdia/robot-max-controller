@@ -21,6 +21,9 @@ class TaskRunner {
   void cancelDevice(const String& device);
   void cancelAll(const char* reason);
   void onDisconnect();
+  
+  // Truy cập wheels device để khởi động continuous mode
+  WheelsDevice* getWheelsDevice() { return &wheels; }
 
  private:
   struct DeviceState {

@@ -32,24 +32,10 @@ driveRelay.onDriveIntent((intent) => {
   deviceAdapter.handleDriveIntent(intent);
 });
 
-// Hook into WsHub to add DriveRelay handling
-const originalWsHubHandleConnection = (wsHub as any).handleConnection.bind(wsHub);
-(wsHub as any).handleConnection = (socket: any, req: any) => {
-  // Check if this is a UI connection (browser) or ESP connection
-  const userAgent = req?.headers?.['user-agent'] || '';
-  const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari');
-  
-  wsLog(`Connection from ${req?.socket?.remoteAddress}, User-Agent: ${userAgent.substring(0, 50)}...`);
-  wsLog(`Detected as: ${isBrowser ? 'BROWSER (UI)' : 'ESP (Device)'}`);
-  
-  if (isBrowser) {
-    // Let DriveRelay handle UI connections
-    driveRelay.handleConnection(socket);
-  } else {
-    // Let WsHub handle ESP connections (backward compat)
-    originalWsHubHandleConnection(socket, req);
-  }
-};
+// Đăng ký DriveRelay để xử lý browser connections
+wsHub.setBrowserConnectionHandler((socket) => {
+  driveRelay.handleConnection(socket);
+});
 
 // API routes
 app.use(buildRouter(wsHub));
