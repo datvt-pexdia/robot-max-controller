@@ -124,11 +124,11 @@ Example response:
 
 The firmware is designed for NodeMCU-style ESP8266 boards and runs in REAL mode only.
 
-Update `firmware/src/Config.h` with your Wi-Fi credentials and server IP before flashing.
+Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
 
 ### Meccano M.A.X Configuration
 
-Configure the MAX bus wiring in `firmware/src/Config.h`:
+Configure the MAX bus wiring in `firmware/main/Config.h`:
 
 - `MAX_DATA_PIN`: ESP8266 pin connected to MAX bus data wire (default: `D4`)
 - `MAX_LEFT_POS`: Device position of left motor on MAX chain (default: `0`)
@@ -150,13 +150,14 @@ arduino-cli lib install "MeccaChannel" "MeccaMaxDrive"
 ### Compile
 
 ```bash
-arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 ./firmware
+# If main.ino is inside ./firmware/main, set sketch root to ./firmware/main
+arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 ./firmware/main
 ```
 
 ### Upload (adjust serial port)
 
 ```bash
-arduino-cli upload -p COM13 --fqbn esp8266:esp8266:nodemcuv2 ./firmware
+arduino-cli upload -p COM13 --fqbn esp8266:esp8266:nodemcuv2 ./firmware/main
 ```
 
 ### Serial monitor
@@ -188,7 +189,7 @@ The firmware controls Meccano M.A.X hardware using the MAX bus protocol.
 - Direction nybble: **0x2n = CW**, **0x3n = CCW**
 - Speed codes: **0x40 = STOP**, **0x42..0x4F** (14 steps; **0x41 unused**)
 
-**Config macros** (see `firmware/src/Config.h`):
+**Config macros** (see `firmware/main/Config.h`):
 ```c
 #define MAX_DATA_PIN          D4
 #define MAX_LEFT_POS          0

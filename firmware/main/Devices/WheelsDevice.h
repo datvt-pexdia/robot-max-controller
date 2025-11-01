@@ -10,36 +10,31 @@
 class WheelsDevice {
 public:
   void begin();
-  void tick(); // gọi đều theo WHEELS_TICK_MS
+  void tick(); // Called every WHEELS_TICK_MS
 
-  // Nhận lệnh drive từ TaskRunner (đơn vị: -100..100)
+  // Receive drive command from TaskRunner (units: -100..100)
   void setTarget(int8_t leftPct, int8_t rightPct, uint32_t durationMs = 0);
 
-  // Khi socket/WS đứt ⇒ cancel ngay lập tức
+  // When socket/WS drops ⇒ cancel immediately
   void emergencyStop();
 
 private:
-  float curL_ = 0.0f, curR_ = 0.0f;   // tốc độ hiện tại (-1..1)
-  float tgtL_ = 0.0f, tgtR_ = 0.0f;   // mục tiêu (-1..1)
-  uint32_t lastCmdAt_ = 0;            // để soft-stop
-  uint32_t deadlineAt_ = 0;           // nếu durationMs > 0
+  // Direct percentage-based state
+  int8_t targetPctL_{0};
+  int8_t targetPctR_{0};
+  int8_t lastSentPctL_{127};  // 127 = "unset"
+  int8_t lastSentPctR_{127};  // 127 = "unset"
+  uint32_t lastCmdAt_{0};
+  uint32_t deadlineAt_{0};
+  uint32_t lastBusWriteMs_{0};
+  uint32_t lastNonZeroMs_{0};
 
-  // MAX bus + devices (REAL-only)
-  MeccaChannel*        maxBus_ = nullptr;
-  MeccaMaxMotorDevice* motorL_ = nullptr;
-  MeccaMaxMotorDevice* motorR_ = nullptr;
+  // MAX bus (REAL-only)
+  MeccaChannel* maxBus_ = nullptr;
 
-  // Cache để giảm chatter
-  uint8_t  lastDirL_    = 0xFF;
-  uint8_t  lastSpeedL_  = 0xFF;
-  uint8_t  lastDirR_    = 0xFF;
-  uint8_t  lastSpeedR_  = 0xFF;
-  uint32_t lastFrameAt_ = 0;
-
-  void applySlewToward(float &cur, float tgt);
-  void driveMotors(float normL, float normR); // gắn driver thật ở đây
-
-  // helpers
-  uint8_t speedCodeFromNorm(float v) const;       // 0x40 hoặc 0x42..0x4F
-  uint8_t dirCodeForWheel(bool isLeft, float v) const; // 0x2n(CW)/0x3n(CCW)
+  // Helper functions for MAX mapping
+  static inline uint8_t dirByte(uint8_t pos, bool ccw);
+  static inline uint8_t speedByteFromPct(int8_t pct);
+  void sendMotor(uint8_t pos, int8_t pct, bool forwardIsCCW);
+  void tickWheels();
 };
