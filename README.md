@@ -1,6 +1,6 @@
 # robot-max-controller
 
-A minimal yet production-ready system to orchestrate a three-device robot (arm, neck, wheels) using a Node.js command server and an ESP8266 firmware client. The firmware runs in REAL mode by default (SIMULATION=false) and controls Meccano M.A.X hardware.
+A minimal yet production-ready system to orchestrate a three-device robot (arm, neck, wheels) using a Node.js command server and an ESP8266 firmware client. The firmware runs in REAL mode by default (SIMULATION=false). Set SIMULATION=true to log to serial if you don't have motors attached.
 
 ## Project structure
 
@@ -18,7 +18,7 @@ project/
       models.ts      # Shared schemas/types
       taskQueue.ts   # In-memory task bookkeeping for status reporting
       wsHub.ts       # ESP WebSocket connection manager
-  firmware/          # ESP8266 Arduino firmware (REAL-only)
+  firmware/          # ESP8266 Arduino firmware (REAL mode default)
     main/
       Config.h       # Wi-Fi + WebSocket + Meccano M.A.X configuration
       NetClient.*    # WebSocket client with reconnect logic
