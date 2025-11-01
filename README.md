@@ -122,9 +122,27 @@ Example response:
 
 ## ESP8266 firmware
 
+<<<<<<< HEAD
 The firmware is designed for NodeMCU-style ESP8266 boards. It runs in REAL mode and controls Meccano M.A.X hardware.
 
 Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
+=======
+The firmware is designed for NodeMCU-style ESP8266 boards. It defaults to **REAL mode** (`SIMULATION false`) which controls actual Meccano M.A.X hardware. Set `SIMULATION true` to log actions to serial monitor instead.
+
+Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
+
+### Meccano M.A.X Configuration
+
+When running in REAL mode (`SIMULATION false`), configure the MAX bus wiring in `Config.h`:
+
+- `MAX_DATA_PIN`: ESP8266 pin connected to MAX bus data wire (default: `D4`)
+- `MAX_LEFT_POS`: Device position of left motor on MAX chain (default: `0`)
+- `MAX_RIGHT_POS`: Device position of right motor on MAX chain (default: `1`)
+- `LEFT_FORWARD_IS_CCW`: `1` if left wheel forward = CCW, `0` if forward = CW (default: `1`)
+- `RIGHT_FORWARD_IS_CCW`: `1` if right wheel forward = CCW, `0` if forward = CW (default: `0`)
+
+If the robot moves backward when commanded to go forward, swap the `LEFT_FORWARD_IS_CCW`/`RIGHT_FORWARD_IS_CCW` values.
+>>>>>>> a6f534eb9db26fd35b6623fcd6d33d67f795d0f4
 
 ### Arduino CLI setup
 
@@ -177,6 +195,10 @@ Mapping (community-verified):
 
 **Config macros** (see `firmware/main/Config.h`):
 ```c
+<<<<<<< HEAD
+=======
+#define SIMULATION            false
+>>>>>>> a6f534eb9db26fd35b6623fcd6d33d67f795d0f4
 #define MAX_DATA_PIN          D4
 #define MAX_LEFT_POS          0
 #define MAX_RIGHT_POS         1
@@ -191,6 +213,9 @@ Notes: Commands are emitted at 30 Hz; writes to bus happen on change or every `M
 
 ## Next steps
 
+<<<<<<< HEAD
 - Integrate actual Servo hardware for Arm/Neck devices (currently TODO placeholders).
+=======
+>>>>>>> a6f534eb9db26fd35b6623fcd6d33d67f795d0f4
 - Extend `NetClient` to persist outbound telemetry if desired (e.g., local buffering when offline).
 - Add authentication by replacing the `JWT_DISABLED` placeholder once security requirements are defined.

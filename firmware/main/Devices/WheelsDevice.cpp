@@ -1,122 +1,43 @@
- #include "WheelsDevice.h"
+// firmware/src/Devices/WheelsDevice.cpp
+#include "WheelsDevice.h"
 #include "../Config.h"
-#include <Arduino.h>
+#include <math.h>
 
-// ==========================================================
-// Build-time toggles
-// ==========================================================
-#ifndef WHEELS_DEBUG
-#define WHEELS_DEBUG 0           // 0: quiet, 1: verbose logs
-#endif
-
-#ifndef COMM_PERIOD_MS
-#define COMM_PERIOD_MS 10        // 10ms cadence theo tài liệu để chuyển động đều
-#endif
-
-// ==========================================================
-// Motor control constants (Meccano MAX protocol)
-// ==========================================================
-// Speed bytes
-static constexpr uint8_t SPEED_STOP   = 0x40;  // valid STOP speed
-static constexpr uint8_t SPEED_MINRUN = 0x42;  // minimal running speed
-static constexpr uint8_t SPEED_MAX    = 0x4F;  // maximal speed
-
-// Direction bytes
-// Note: trên MAX, "robot forward" = Left anticlockwise (0x34), Right clockwise (0x24)
-static constexpr uint8_t DIR_STOP     = 0x00;
-static constexpr uint8_t DIR_L_FWD    = 0x34;  // Left forward  (anti-clockwise)
-static constexpr uint8_t DIR_L_REV    = 0x24;  // Left reverse  (clockwise)
-static constexpr uint8_t DIR_R_FWD    = 0x24;  // Right forward (clockwise)
-static constexpr uint8_t DIR_R_REV    = 0x34;  // Right reverse (anti-clockwise)
-
-// Wiring note: Byte[1] -> RIGHT motor, Byte[2] -> LEFT motor
-static constexpr int pinMOTOR = D4;   // ESP8266 GPIO2
-
-// ==========================================================
-// Small helpers (internal linkage)
-// ==========================================================
-static inline uint8_t mapSpeedPercentToByte(int pctAbs /*0..100*/) {
-  if (pctAbs <= 0) return SPEED_STOP;  // allow true stop for that wheel
-  return (uint8_t)map(pctAbs, 0, 100, SPEED_MINRUN, SPEED_MAX);
+static inline float clampf(float v, float lo, float hi) {
+  return v < lo ? lo : (v > hi ? hi : v);
 }
 
-static inline uint8_t clampSpeedAllowStop(uint8_t s) {
-  if (s == SPEED_STOP) return SPEED_STOP;  // keep STOP as is
-  if (s < SPEED_MINRUN) return SPEED_MINRUN;
-  if (s > SPEED_MAX)    return SPEED_MAX;
-  return s;
-}
+void WheelsDevice::begin() {
+  curL_ = curR_ = 0.0f;
+  tgtL_ = tgtR_ = 0.0f;
+  lastCmdAt_ = millis();
+  deadlineAt_ = 0;
 
-static inline uint8_t leftDirFromSigned(int v) {
-  if (v == 0) return DIR_STOP;
-  return (v > 0) ? DIR_L_FWD : DIR_L_REV;
-}
+  lastDirL_ = lastDirR_ = 0xFF;
+  lastSpeedL_ = lastSpeedR_ = 0xFF;
+  lastFrameAt_ = 0;
 
-static inline uint8_t rightDirFromSigned(int v) {
-  if (v == 0) return DIR_STOP;
-  return (v > 0) ? DIR_R_FWD : DIR_R_REV;
-}
+#if !SIMULATION
+  if (!maxBus_)  maxBus_ = new MeccaChannel(MAX_DATA_PIN);
+  if (!motorL_)  motorL_ = new MeccaMaxMotorDevice(*maxBus_, MAX_LEFT_POS);
+  if (!motorR_)  motorR_ = new MeccaMaxMotorDevice(*maxBus_, MAX_RIGHT_POS);
 
-// ==========================================================
-// WheelsDevice
-// ==========================================================
-WheelsDevice::WheelsDevice()
-    : running(false),
-      hasTask(false),
-      startMs(0),
-      durationMs(0),
-      lastLoggedProgress(0),
-      lastCommandMs(0),
-      channelMOTOR(nullptr),
-      drive(nullptr),
-      motorInitialized(false),
-      continuousMode(true),  // MẶC ĐỊNH: true = continuous mode luôn bật
-      isMoving(false),
-      needSpeedUpdate(false) {
-  current.taskId = "";
-#if defined(__has_include)
-  // no-op
-#endif
-  // Nếu TaskEnvelope có trường leftCmd/rightCmd thì đảm bảo init stop
-  current.leftCmd  = DIR_STOP;
-  current.rightCmd = DIR_STOP;
-  leftSpeedByte  = SPEED_STOP;
-  rightSpeedByte = SPEED_STOP;
-}
-
-const char* WheelsDevice::deviceName() const { return "wheels"; }
-
-// ----------------------------------------------------------
-// Internal: unified send respecting wiring (R,L)
-// ----------------------------------------------------------
-void WheelsDevice::sendRL_(uint8_t rightByte, uint8_t leftByte) {
-  // NOTE: Byte[1] -> RIGHT, Byte[2] -> LEFT
-  channelMOTOR->communicateAllByte(rightByte, leftByte, 0xFE, 0xFE);
-  
-  // ALWAYS log hex để debug (không cần WHEELS_DEBUG)
-  Serial.printf("[WHEELS] sendRL: [FF %02X %02X FE FE] → Right=0x%02X Left=0x%02X\n", 
-                rightByte, leftByte, rightByte, leftByte);
-}
-
-void WheelsDevice::startTask(const TaskEnvelope& task, uint32_t now) {
-  current = task;
-  hasTask = true;
-  running = true;
-  startMs = now;
-  // Trong continuous mode, task không bao giờ kết thúc (durationMs rất lớn)
-  // Trong normal mode, dùng duration từ task
-  if (continuousMode) {
-    durationMs = 0xFFFFFFFF; // vô hạn
-  } else {
-    durationMs = (task.durationMs >= 100) ? task.durationMs : 100;
+  // Gửi một lượt communicate để kích hoạt thiết bị trên bus (giống DriveTest.ino)
+  if (maxBus_) {
+    maxBus_->communicate();
   }
-  lastLoggedProgress = 0;
-  lastCommandMs = now;
+#endif
+}
 
-  if (!motorInitialized) {
-    initializeMotors();
-  }
+void WheelsDevice::setTarget(int8_t leftPct, int8_t rightPct, uint32_t durationMs) {
+  // map -100..100 → -1..1
+  tgtL_ = clampf(leftPct / 100.0f, -1.0f, 1.0f);
+  tgtR_ = clampf(rightPct / 100.0f, -1.0f, 1.0f);
+  lastCmdAt_ = millis();
+  deadlineAt_ = durationMs ? (lastCmdAt_ + durationMs) : 0;
+}
 
+<<<<<<< HEAD
   const bool isStopBoth = (task.left == 0 && task.right == 0);
 
   // ---- Speed per wheel
@@ -368,52 +289,92 @@ void WheelsDevice::cancel(uint32_t now) {
     current.taskId = "";
   }
 }
-
-void WheelsDevice::finish() {
-  hasTask = false;
-  current.taskId = "";
+=======
+void WheelsDevice::emergencyStop() {
+  curL_ = curR_ = 0.0f;
+  tgtL_ = tgtR_ = 0.0f;
+  driveMotors(0, 0);
 }
 
-bool WheelsDevice::isRunning() const { return running; }
-
-bool WheelsDevice::isCompleted(uint32_t now) const {
-  (void)now;
-  // Trong continuous mode, task không bao giờ completed
-  if (continuousMode) return false;
-  return hasTask && !running && current.taskId.length() > 0;
+void WheelsDevice::applySlewToward(float &cur, float tgt) {
+  const float SLEW = 0.08f; // mỗi tick đổi tối đa 0.08
+  float d = tgt - cur;
+  if (fabs(d) <= SLEW) cur = tgt;
+  else cur += (d > 0 ? SLEW : -SLEW);
 }
 
-uint8_t WheelsDevice::progress(uint32_t now) const {
-  // Trong continuous mode, luôn trả về 50% (đang chạy liên tục)
-  if (continuousMode) return running ? 50 : 0;
-  
-  if (!running) return hasTask ? 100 : 0;
-  const uint32_t elapsed = now - startMs;
-  if (durationMs == 0) return 0;
-  uint32_t pct = (elapsed * 100) / durationMs;
-  if (pct > 100) pct = 100;
-  return (uint8_t)pct;
+void WheelsDevice::tick() {
+  const uint32_t now = millis();
+
+  // Timeout mềm: không có lệnh mới trong một thời gian ngắn ⇒ tự giảm về 0
+  if ((now - lastCmdAt_) > SOFT_STOP_TIMEOUT_MS) { tgtL_ = 0.0f; tgtR_ = 0.0f; }
+  // Deadline tác vụ (nếu có)
+  if (deadlineAt_ && now >= deadlineAt_) { tgtL_ = 0.0f; tgtR_ = 0.0f; }
+
+  // Timeout cứng: mất kết nối lâu ⇒ STOP ngay
+  if ((now - lastCmdAt_) > HARD_STOP_TIMEOUT_MS) { emergencyStop(); return; }
+
+  // Slew-rate để mượt
+  applySlewToward(curL_, tgtL_);
+  applySlewToward(curR_, tgtR_);
+
+  // Gửi lệnh xuống hardware (hoặc log nếu SIMULATION)
+  driveMotors(curL_, curR_);
 }
 
-String WheelsDevice::currentTaskId() const { return current.taskId; }
+// Map [-1..1] → speed code {0x40 (stop)} U {0x42..0x4F}
+// 0x41 không dùng; ngưỡng |v|<0.02 coi như 0 → STOP
+uint8_t WheelsDevice::speedCodeFromNorm(float v) const {
+  float a = fabs(v);
+  if (a < 0.02f) return 0x40; // STOP
+  int step = (int)roundf(a * 14.0f); // 1..14
+  if (step < 1) step = 1;
+  if (step > 14) step = 14;
+  return (uint8_t)(0x41 + step); // 0x42..0x4F
+}
 
-// ==========================================================
-// Motor I/O
-// ==========================================================
-void WheelsDevice::initializeMotors() {
-  // Chỉ allocate channel và drive, KHÔNG block để chờ motor
-  // Motor sẽ được phát hiện dần dần trong tick()
-  if (channelMOTOR && drive) {
-    Serial.println("[WHEELS] Motors already initialized");
+// Trả về 0x2n(CW) / 0x3n(CCW) theo hướng "tiến" cấu hình cho từng bánh
+uint8_t WheelsDevice::dirCodeForWheel(bool isLeft, float v) const {
+  const uint8_t DIR_CW  = 0x20;
+  const uint8_t DIR_CCW = 0x30;
+  const bool forwardIsCCW = isLeft ? (LEFT_FORWARD_IS_CCW != 0) : (RIGHT_FORWARD_IS_CCW != 0);
+  const bool forwardCmd   = (v >= 0.0f);
+  bool wantCCW = forwardCmd ? forwardIsCCW : !forwardIsCCW;
+  return wantCCW ? DIR_CCW : DIR_CW;
+}
+
+void WheelsDevice::driveMotors(float normL, float normR) {
+#if SIMULATION
+  static uint32_t lastLog = 0;
+  const uint32_t now = millis();
+  if (now - lastLog >= 100) {
+    Serial.printf("[WHEELS] L=%.2f R=%.2f\n", normL, normR);
+    lastLog = now;
+  }
+#else
+  if (!maxBus_) return;
+  const uint32_t now = millis();
+>>>>>>> a6f534eb9db26fd35b6623fcd6d33d67f795d0f4
+
+  // Frame hiện tại
+  const uint8_t spL = speedCodeFromNorm(normL);
+  const uint8_t spR = speedCodeFromNorm(normR);
+  const uint8_t dirL = (spL == 0x40) ? dirCodeForWheel(true,  0.0f) : dirCodeForWheel(true,  normL);
+  const uint8_t dirR = (spR == 0x40) ? dirCodeForWheel(false, 0.0f) : dirCodeForWheel(false, normR);
+
+  const bool chgL = (dirL != lastDirL_) || (spL != lastSpeedL_);
+  const bool chgR = (dirR != lastDirR_) || (spR != lastSpeedR_);
+  const bool needKeepAlive = (now - lastFrameAt_) >= MAX_KEEPALIVE_MS;
+
+  if (!(chgL || chgR || needKeepAlive)) {
     return;
   }
 
-  Serial.println("[WHEELS] Initializing Meccano MAX motors (non-blocking)...");
-  
-  // Allocate once
-  if (!channelMOTOR) channelMOTOR = new MeccaChannel(pinMOTOR);
-  if (!drive)        drive        = new MeccaMaxDrive(channelMOTOR);
+  // Theo mapping community: Byte[0] = Right dir, Byte[1] = Left dir, Byte[2] = Right speed, Byte[3] = Left speed
+  // Sử dụng communicateAllByte() như trong DriveTest.ino
+  maxBus_->communicateAllByte(dirR, dirL, spR, spL);
 
+<<<<<<< HEAD
   // Thử communicate một lần để bắt đầu discovery
   channelMOTOR->communicate();
   
@@ -425,82 +386,12 @@ void WheelsDevice::initializeMotors() {
     motorInitialized = false;
     Serial.println("[WHEELS] Motor device not detected yet, will retry in tick()...");
   }
-}
-
-void WheelsDevice::setMotorSpeed(uint8_t leftSpeed, uint8_t rightSpeed) {
-  if (!motorInitialized || !channelMOTOR) {
-    Serial.println("[WHEELS] setMotorSpeed: not initialized or channel is null");
-    return;
-  }
-
-  leftSpeed  = clampSpeedAllowStop(leftSpeed);
-  rightSpeed = clampSpeedAllowStop(rightSpeed);
-
-  Serial.printf("[WHEELS] setMotorSpeed: L=0x%02X R=0x%02X\n", leftSpeed, rightSpeed);
-  // Send as (R,L)
-  sendRL_(rightSpeed, leftSpeed);
-}
-
-void WheelsDevice::stopMotors() {
-  if (!motorInitialized || !channelMOTOR) {
-#if WHEELS_DEBUG
-    Serial.println("[WHEELS] stopMotors: not initialized or channel is null");
+=======
+  lastDirL_ = dirL;
+  lastSpeedL_ = spL;
+  lastDirR_ = dirR;
+  lastSpeedR_ = spR;
+  lastFrameAt_ = now;
 #endif
-    return;
-  }
-
-#if WHEELS_DEBUG
-  Serial.println("[WHEELS] Stopping motors...");
-#endif
-  // 1) Speed stop for both wheels
-  sendRL_(SPEED_STOP, SPEED_STOP);
-  delay(2);
-  // 2) Direction stop for both wheels
-  sendRL_(DIR_STOP, DIR_STOP);
-
-  // Update current cached bytes (avoid ghost motion in tick)
-  current.leftCmd  = DIR_STOP;
-  current.rightCmd = DIR_STOP;
-  leftSpeedByte  = SPEED_STOP;
-  rightSpeedByte = SPEED_STOP;
-}
-
-void WheelsDevice::startContinuousTask(uint32_t now) {
-  if (!motorInitialized) {
-    initializeMotors();
-  }
-
-  continuousMode = true;
-  isMoving = false; // ban đầu dừng
-  needSpeedUpdate = false;
-  
-  // Tạo một task dummy với taskId đặc biệt
-  TaskEnvelope continuousTask;
-  continuousTask.taskId = "wheels_continuous";
-  continuousTask.device = "wheels";
-  continuousTask.left = 0;
-  continuousTask.right = 0;
-  continuousTask.durationMs = 0xFFFFFFFF; // vô hạn
-  
-  current = continuousTask;
-  hasTask = true;
-  running = true;
-  startMs = now;
-  durationMs = 0xFFFFFFFF;
-  lastLoggedProgress = 0;
-  lastCommandMs = now;
-  
-  leftSpeedByte = SPEED_STOP;
-  rightSpeedByte = SPEED_STOP;
-  current.leftCmd = DIR_STOP;
-  current.rightCmd = DIR_STOP;
-
-#if WHEELS_DEBUG
-  Serial.println("[WHEELS] Continuous task started - will send STOP signals continuously");
-#endif
-}
-
-uint8_t WheelsDevice::clampSpeed(uint8_t speed) {
-  // Kept for header/API compatibility; we allow STOP across
-  return clampSpeedAllowStop(speed);
+>>>>>>> a6f534eb9db26fd35b6623fcd6d33d67f795d0f4
 }
