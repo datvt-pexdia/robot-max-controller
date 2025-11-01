@@ -36,12 +36,18 @@ export class WsHub {
   private espSocket?: WebSocket;
   private heartbeatTimer?: NodeJS.Timeout;
   private lastPong = 0;
+  private espReady = false; // Grace period: ready after 500ms
+  private espReadyTimer?: NodeJS.Timeout;
+  private inboundBuffer: InboundEnvelope[] = []; // Buffer messages until ready
 
   // Buffer gửi khi ESP offline
   private buffer: OutboundEnvelope[] = [];
 
   // Lưu hello gần nhất (ISO string)
   private lastHello?: string;
+  
+  // Deduplication: track last seen seq per taskId
+  private lastSeqMap = new Map<string, number>();
 
   // Debounce cho replace
   private replaceBuffer: AnyTask[] = [];
@@ -61,14 +67,12 @@ export class WsHub {
     this.wss.on('connection', (socket, req) => this.handleConnection(socket, req));
     
     // Handle upgrade manually to filter by path
-    server.on('upgrade', (req, socket, head) => {
-      const { pathname } = new URL(req.url || '', `ws://${req.headers.host}`);
-      if (pathname !== WS_PATH) {
-        wsLog(`Rejecting upgrade: wrong path '${pathname}' (expected '${WS_PATH}')`);
-        socket.destroy();
+    server.on('upgrade', (req, sock, head) => {
+      if (req.url !== '/robot') {
+        sock.destroy();
         return;
       }
-      this.wss.handleUpgrade(req, socket, head, (ws) => {
+      this.wss.handleUpgrade(req, sock, head, (ws) => {
         this.wss.emit('connection', ws, req);
       });
     });
@@ -203,6 +207,21 @@ export class WsHub {
       (socket as any)._socket?.setNoDelay?.(true);
     } catch {}
 
+    // Grace period: mark ready after 500ms
+    this.espReady = false;
+    this.inboundBuffer = [];
+    if (this.espReadyTimer) {
+      clearTimeout(this.espReadyTimer);
+    }
+    this.espReadyTimer = setTimeout(() => {
+      this.espReady = true;
+      // Flush buffered inbound messages
+      while (this.inboundBuffer.length > 0) {
+        const msg = this.inboundBuffer.shift();
+        if (msg) this.routeInbound(msg);
+      }
+    }, 500);
+
     // Mark socket as alive and set up heartbeat tracking
     (socket as any).isAlive = true;
 
@@ -231,6 +250,13 @@ export class WsHub {
     try {
       const text = data.toString();
       const payload = JSON.parse(text) as InboundEnvelope;
+      
+      // Buffer inbound messages during grace period
+      if (!this.espReady) {
+        this.inboundBuffer.push(payload);
+        return;
+      }
+      
       this.routeInbound(payload);
     } catch (err) {
       wsLog('Failed to parse inbound message', err);
@@ -238,6 +264,24 @@ export class WsHub {
   }
 
   private routeInbound(message: InboundEnvelope): void {
+    // Deduplication: check seq if present (taskId + seq for task-related messages)
+    const msgSeq = message.seq;
+    if (msgSeq !== undefined) {
+      let key: string;
+      if (message.kind === 'ack' || message.kind === 'progress' || message.kind === 'done' || message.kind === 'error') {
+        const taskId = (message as any).taskId || '';
+        key = taskId; // Use taskId as key per requirement
+      } else {
+        key = message.kind; // For non-task messages, use kind
+      }
+      const lastSeq = this.lastSeqMap.get(key) || 0;
+      if (msgSeq <= lastSeq) {
+        wsLog(`Dropping duplicate message: ${message.kind} taskId=${(message as any).taskId || 'n/a'} seq=${msgSeq} <= ${lastSeq}`);
+        return;
+      }
+      this.lastSeqMap.set(key, msgSeq);
+    }
+    
     switch (message.kind) {
       case 'hello':
         this.lastHello = new Date().toISOString();
@@ -278,7 +322,14 @@ export class WsHub {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = undefined;
     }
+    if (this.espReadyTimer) {
+      clearTimeout(this.espReadyTimer);
+      this.espReadyTimer = undefined;
+    }
     this.espSocket = undefined;
+    this.espReady = false;
+    this.inboundBuffer = [];
+    this.lastSeqMap.clear();
   }
 
   /**
@@ -292,29 +343,30 @@ export class WsHub {
       clearInterval(this.heartbeatTimer);
     }
     this.heartbeatTimer = setInterval(() => {
-      if (!this.espSocket || this.espSocket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      
-      const socket = this.espSocket as any;
-      
-      // Check if socket is alive (responded to previous ping)
-      if (socket.isAlive === false) {
-        wsLog('[WS] No pong received; terminating socket');
-        try {
-          this.espSocket.terminate();
-        } catch {}
-        this.espSocket = undefined;
-        return;
-      }
+      this.wss.clients.forEach((ws: any) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        
+        // Check if socket is alive (responded to previous ping)
+        if (ws.isAlive === false) {
+          wsLog('[WS] No pong received; terminating socket');
+          try {
+            ws.terminate();
+          } catch {}
+          if (ws === this.espSocket) {
+            this.espSocket = undefined;
+            this.espReady = false;
+          }
+          return;
+        }
 
-      // Mark as not alive and send ping
-      socket.isAlive = false;
-      try {
-        this.espSocket.ping();
-      } catch (e) {
-        wsLog(`[WS] ping error: ${(e as Error).message}`);
-      }
+        // Mark as not alive and send ping
+        ws.isAlive = false;
+        try {
+          ws.ping();
+        } catch (e) {
+          wsLog(`[WS] ping error: ${(e as Error).message}`);
+        }
+      });
     }, WS_HEARTBEAT_MS);
   }
 

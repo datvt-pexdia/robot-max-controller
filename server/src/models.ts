@@ -47,12 +47,12 @@ export type OutboundEnvelope =
   | { kind: 'ping'; t: number };
 
 export type InboundEnvelope =
-  | { kind: 'hello'; espId: string; fw: string }
-  | { kind: 'ack'; taskId: string }
-  | { kind: 'progress'; taskId: string; pct: number; note?: string }
-  | { kind: 'done'; taskId: string }
-  | { kind: 'error'; taskId?: string; message: string }
-  | { kind: 'pong'; t: number };
+  | { kind: 'hello'; espId: string; fw: string; seq?: number }
+  | { kind: 'ack'; taskId: string; seq?: number }
+  | { kind: 'progress'; taskId: string; pct: number; note?: string; seq?: number }
+  | { kind: 'done'; taskId: string; seq?: number }
+  | { kind: 'error'; taskId?: string; message: string; seq?: number }
+  | { kind: 'pong'; t: number; seq?: number };
 
 export interface DeviceStatus {
   runningTaskId?: string;

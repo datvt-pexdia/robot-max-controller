@@ -7,11 +7,14 @@ static constexpr int8_t PCT_DEADZONE = 2;
 
 void WheelsDevice::begin() {
   targetPctL_ = targetPctR_ = 0;
+  currentPctL_ = currentPctR_ = 0;
+  slewAccumL_ = slewAccumR_ = 0;
   lastSentPctL_ = lastSentPctR_ = 127; // 127 = "unset"
   lastCmdAt_ = millis();
   deadlineAt_ = 0;
   lastBusWriteMs_ = 0;
   lastNonZeroMs_ = 0;
+  lastTickMs_ = millis();
 
   // Init MAX bus (REAL-only)
   if (!maxBus_) {
@@ -34,6 +37,8 @@ void WheelsDevice::setTarget(int8_t leftPct, int8_t rightPct, uint32_t durationM
 
 void WheelsDevice::emergencyStop() {
   targetPctL_ = targetPctR_ = 0;
+  currentPctL_ = currentPctR_ = 0;
+  slewAccumL_ = slewAccumR_ = 0;
   if (maxBus_) {
     bool wantCCW_L = (0 >= 0) ? (LEFT_FORWARD_IS_CCW != 0) : !(LEFT_FORWARD_IS_CCW != 0);
     bool wantCCW_R = (0 >= 0) ? (RIGHT_FORWARD_IS_CCW != 0) : !(RIGHT_FORWARD_IS_CCW != 0);
@@ -72,11 +77,10 @@ uint8_t WheelsDevice::dirByte(uint8_t pos, bool ccw) {
 
 // Map percentage (-100..100) to speed byte (0x40=STOP, 0x42..0x4F are 14 steps)
 uint8_t WheelsDevice::speedByteFromPct(int8_t pct) {
-  if (pct == 0) return 0x40; // STOP
-  uint8_t step = (uint8_t)round((abs(pct) * 14.0) / 100.0); // 1..14
-  if (step < 1) step = 1;
-  if (step > 14) step = 14;
-  return (uint8_t)(0x41 + step); // => 0x42..0x4F
+  if (pct <= 0) return 0x40; // STOP
+  uint8_t s = constrain(abs(pct), 0, 100);
+  uint8_t code = 0x42 + round(s * 13 / 100); // 0x42..0x4F
+  return min(code, (uint8_t)0x4F);
 }
 
 // Send motor command: direction byte + speed byte
@@ -90,6 +94,34 @@ void WheelsDevice::sendMotor(uint8_t pos, int8_t pct, bool forwardIsCCW) {
 
 void WheelsDevice::tickWheels() {
   unsigned long now = millis();
+  
+  // Slew-rate limiting: ±0.67 per frame (≈20 per second at 30Hz)
+  // Using fixed-point math (scaled by 100) for fractional accumulator
+  const int16_t MAX_DELTA_PER_FRAME_SCALED = 67; // 0.67 * 100
+  uint32_t deltaMs = now - lastTickMs_;
+  if (deltaMs >= WHEELS_TICK_MS) {
+    // Calculate desired change (scaled by 100)
+    int16_t targetDeltaL = (targetPctL_ - currentPctL_) * 100;
+    int16_t targetDeltaR = (targetPctR_ - currentPctR_) * 100;
+    
+    // Add to fractional accumulator, clamped to ±67 per frame
+    int16_t deltaAccumL = constrain(targetDeltaL, -MAX_DELTA_PER_FRAME_SCALED, MAX_DELTA_PER_FRAME_SCALED);
+    int16_t deltaAccumR = constrain(targetDeltaR, -MAX_DELTA_PER_FRAME_SCALED, MAX_DELTA_PER_FRAME_SCALED);
+    
+    slewAccumL_ += deltaAccumL;
+    slewAccumR_ += deltaAccumR;
+    
+    // Apply integer portion to current speed, keep remainder
+    int8_t deltaL = slewAccumL_ / 100;
+    int8_t deltaR = slewAccumR_ / 100;
+    slewAccumL_ -= deltaL * 100;
+    slewAccumR_ -= deltaR * 100;
+    
+    currentPctL_ = constrain(currentPctL_ + deltaL, -100, 100);
+    currentPctR_ = constrain(currentPctR_ + deltaR, -100, 100);
+    
+    lastTickMs_ = now;
+  }
 
   // Soft/hard stop guards
   if (targetPctL_ == 0 && targetPctR_ == 0) {
@@ -122,30 +154,30 @@ void WheelsDevice::tickWheels() {
   }
 
   bool needKeepalive = (now - lastBusWriteMs_) >= MAX_KEEPALIVE_MS;
-  bool changedL = (abs(targetPctL_ - lastSentPctL_) >= PCT_DEADZONE);
-  bool changedR = (abs(targetPctR_ - lastSentPctR_) >= PCT_DEADZONE);
+  bool changedL = (abs(currentPctL_ - lastSentPctL_) >= PCT_DEADZONE);
+  bool changedR = (abs(currentPctR_ - lastSentPctR_) >= PCT_DEADZONE);
 
   if (changedL || changedR || needKeepalive) {
-    // Prepare direction and speed bytes for both motors
-    bool wantCCW_L = (targetPctL_ >= 0) ? (LEFT_FORWARD_IS_CCW != 0) : !(LEFT_FORWARD_IS_CCW != 0);
+    // Prepare direction and speed bytes for both motors using current (slew-rate limited) values
+    bool wantCCW_L = (currentPctL_ >= 0) ? (LEFT_FORWARD_IS_CCW != 0) : !(LEFT_FORWARD_IS_CCW != 0);
     uint8_t dirL = dirByte(MAX_LEFT_POS, wantCCW_L);
-    uint8_t spL = speedByteFromPct(targetPctL_);
+    uint8_t spL = speedByteFromPct(currentPctL_);
     
-    bool wantCCW_R = (targetPctR_ >= 0) ? (RIGHT_FORWARD_IS_CCW != 0) : !(RIGHT_FORWARD_IS_CCW != 0);
+    bool wantCCW_R = (currentPctR_ >= 0) ? (RIGHT_FORWARD_IS_CCW != 0) : !(RIGHT_FORWARD_IS_CCW != 0);
     uint8_t dirR = dirByte(MAX_RIGHT_POS, wantCCW_R);
-    uint8_t spR = speedByteFromPct(targetPctR_);
+    uint8_t spR = speedByteFromPct(currentPctR_);
 
     if (maxBus_) {
       // Send: rightDir, leftDir, rightSpeed, leftSpeed
       maxBus_->communicateAllByte(dirR, dirL, spR, spL);
       lastBusWriteMs_ = now;
 #if DEBUG_LOGS
-      Serial.printf("[WHEELS] L=%d%% R=%d%% -> dirL=0x%02X dirR=0x%02X spL=0x%02X spR=0x%02X\n",
-                    targetPctL_, targetPctR_, dirL, dirR, spL, spR);
+      Serial.printf("[WHEELS] L=%d%% R=%d%% (current L=%d%% R=%d%%) -> dirL=0x%02X dirR=0x%02X spL=0x%02X spR=0x%02X\n",
+                    targetPctL_, targetPctR_, currentPctL_, currentPctR_, dirL, dirR, spL, spR);
 #endif
     }
-    lastSentPctL_ = targetPctL_;
-    lastSentPctR_ = targetPctR_;
+    lastSentPctL_ = currentPctL_;
+    lastSentPctR_ = currentPctR_;
   }
 
   // Hard stop if we somehow haven't written for too long
@@ -162,5 +194,8 @@ void WheelsDevice::tickWheels() {
 #endif
     }
     lastSentPctL_ = lastSentPctR_ = 0;
+    currentPctL_ = currentPctR_ = 0;
+    targetPctL_ = targetPctR_ = 0;
+    slewAccumL_ = slewAccumR_ = 0;
   }
 }

@@ -4,10 +4,7 @@
   #include "Config.local.h"  // defines WIFI_SSID, WIFI_PASS overrides
 #endif
 
-// ==== SIMULATION (disabled - REAL mode only) ====
-#define SIMULATION            0
-
-// ==== DEBUG logs (optional: enable serial logs without SIMULATION) ====
+// ==== DEBUG logs (optional: enable serial logs) ====
 #define DEBUG_LOGS            1
 
 // ==== Wi-Fi & WS endpoint ====

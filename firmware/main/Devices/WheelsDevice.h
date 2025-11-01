@@ -24,10 +24,15 @@ private:
   int8_t targetPctR_{0};
   int8_t lastSentPctL_{127};  // 127 = "unset"
   int8_t lastSentPctR_{127};  // 127 = "unset"
+  int8_t currentPctL_{0};     // Current speed after slew-rate limiting
+  int8_t currentPctR_{0};     // Current speed after slew-rate limiting
+  int16_t slewAccumL_{0};     // Fractional accumulator for slew-rate (scaled by 100)
+  int16_t slewAccumR_{0};     // Fractional accumulator for slew-rate (scaled by 100)
   uint32_t lastCmdAt_{0};
   uint32_t deadlineAt_{0};
   uint32_t lastBusWriteMs_{0};
   uint32_t lastNonZeroMs_{0};
+  uint32_t lastTickMs_{0};    // For slew-rate limiting
 
   // MAX bus (REAL-only)
   MeccaChannel* maxBus_ = nullptr;

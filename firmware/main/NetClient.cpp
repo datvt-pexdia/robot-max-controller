@@ -13,7 +13,10 @@ NetClient::NetClient()
     : runner(nullptr),
       connected(false),
       lastConnectAttempt(0),
-      reconnectDelay(WS_RECONNECT_BASE_MS) {}
+      reconnectDelay(WS_RECONNECT_BASE_MS),
+      msgSeq_(0),
+      lastTelemetryMs_(0),
+      telemetryCount_(0) {}
 
 void NetClient::begin(TaskRunner* r) {
   runner = r;
@@ -78,42 +81,46 @@ void NetClient::loop() {
 }
 
 void NetClient::sendAck(const String& taskId) {
-  if (!connected) return;
-  StaticJsonDocument<256> doc;
-  doc["kind"] = "ack";
-  doc["taskId"] = taskId;
-  sendEnvelope(doc);
+  if (!connected || !canSendTelemetry()) return;
+  ackDoc_.clear();
+  ackDoc_["kind"] = "ack";
+  ackDoc_["taskId"] = taskId;
+  ackDoc_["seq"] = ++msgSeq_;
+  sendEnvelope(ackDoc_);
 }
 
 void NetClient::sendProgress(const String& taskId, uint8_t pct, const String& note) {
-  if (!connected) return;
-  StaticJsonDocument<256> doc;
-  doc["kind"] = "progress";
-  doc["taskId"] = taskId;
-  doc["pct"] = pct;
+  if (!connected || !canSendTelemetry()) return;
+  progressDoc_.clear();
+  progressDoc_["kind"] = "progress";
+  progressDoc_["taskId"] = taskId;
+  progressDoc_["pct"] = pct;
+  progressDoc_["seq"] = ++msgSeq_;
   if (note.length() > 0) {
-    doc["note"] = note;
+    progressDoc_["note"] = note;
   }
-  sendEnvelope(doc);
+  sendEnvelope(progressDoc_);
 }
 
 void NetClient::sendDone(const String& taskId) {
-  if (!connected) return;
-  StaticJsonDocument<256> doc;
-  doc["kind"] = "done";
-  doc["taskId"] = taskId;
-  sendEnvelope(doc);
+  if (!connected || !canSendTelemetry()) return;
+  doneDoc_.clear();
+  doneDoc_["kind"] = "done";
+  doneDoc_["taskId"] = taskId;
+  doneDoc_["seq"] = ++msgSeq_;
+  sendEnvelope(doneDoc_);
 }
 
 void NetClient::sendError(const String& taskId, const String& message) {
-  if (!connected) return;
-  StaticJsonDocument<256> doc;
-  doc["kind"] = "error";
+  if (!connected || !canSendTelemetry()) return;
+  errorDoc_.clear();
+  errorDoc_["kind"] = "error";
+  errorDoc_["seq"] = ++msgSeq_;
   if (taskId.length() > 0) {
-    doc["taskId"] = taskId;
+    errorDoc_["taskId"] = taskId;
   }
-  doc["message"] = message;
-  sendEnvelope(doc);
+  errorDoc_["message"] = message;
+  sendEnvelope(errorDoc_);
 }
 
 void NetClient::connect() {
@@ -141,11 +148,16 @@ void NetClient::connect() {
 
 void NetClient::scheduleReconnect() {
   connected = false;
-  // Exponential backoff với trần
+  // Exponential backoff with jitter (1s→5s)
   uint32_t nextDelay = reconnectDelay * 2;
   if (nextDelay < WS_RECONNECT_BASE_MS) nextDelay = WS_RECONNECT_BASE_MS;
   if (nextDelay > WS_RECONNECT_MAX_MS) nextDelay = WS_RECONNECT_MAX_MS;
-  reconnectDelay = nextDelay;
+  
+  // Add jitter: ±20% random variation
+  uint32_t jitter = (nextDelay * 20) / 100;
+  uint32_t jittered = nextDelay + random(-jitter, jitter + 1);
+  reconnectDelay = constrain(jittered, WS_RECONNECT_BASE_MS, WS_RECONNECT_MAX_MS);
+  
   Serial.printf("[NET] Reconnect scheduled in %lu ms\n", reconnectDelay);
 }
 
@@ -160,6 +172,9 @@ void NetClient::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
     case WStype_CONNECTED: {
       connected = true;
       reconnectDelay = WS_RECONNECT_BASE_MS;
+      msgSeq_ = 0;
+      lastTelemetryMs_ = millis();
+      telemetryCount_ = 0;
       Serial.println("[NET] WebSocket CONNECTED");
       sendHello();
       
@@ -251,10 +266,11 @@ void NetClient::handleMessage(const String& payload) {
   }
 
   if (strcmp(kind, "ping") == 0) {
-    StaticJsonDocument<96> pong;
-    pong["kind"] = "pong";
-    pong["t"] = doc["t"] | (uint32_t)millis();
-    sendEnvelope(pong);
+    pongDoc_.clear();
+    pongDoc_["kind"] = "pong";
+    pongDoc_["t"] = doc["t"] | (uint32_t)millis();
+    pongDoc_["seq"] = ++msgSeq_;
+    sendEnvelope(pongDoc_);
     return;
   }
 
@@ -274,13 +290,29 @@ void NetClient::handleMessage(const String& payload) {
 }
 
 void NetClient::sendHello() {
-  StaticJsonDocument<256> doc;
-  doc["kind"] = "hello";
-  doc["espId"] = String(ESP.getChipId(), HEX);
-  doc["fw"] = "robot-max-fw/1.0";
-  doc["rssi"] = WiFi.RSSI();
-  doc["ip"] = WiFi.localIP().toString();
-  sendEnvelope(doc);
+  helloDoc_.clear();
+  helloDoc_["kind"] = "hello";
+  helloDoc_["espId"] = String(ESP.getChipId(), HEX);
+  helloDoc_["fw"] = "robot-max-fw/1.0";
+  helloDoc_["rssi"] = WiFi.RSSI();
+  helloDoc_["ip"] = WiFi.localIP().toString();
+  helloDoc_["seq"] = ++msgSeq_;
+  sendEnvelope(helloDoc_);
+}
+
+bool NetClient::canSendTelemetry() {
+  uint32_t now = millis();
+  // Reset counter every second
+  if (now - lastTelemetryMs_ >= 1000) {
+    telemetryCount_ = 0;
+    lastTelemetryMs_ = now;
+  }
+  // Limit to 10 messages per second
+  if (telemetryCount_ >= 10) {
+    return false;
+  }
+  telemetryCount_++;
+  return true;
 }
 
 void NetClient::sendEnvelope(JsonDocument& doc) {

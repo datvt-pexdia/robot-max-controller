@@ -54,6 +54,19 @@ class NetClient {
   bool connected;
   uint32_t lastConnectAttempt;
   uint32_t reconnectDelay;
+  
+  // Message sequencing and rate limiting
+  uint32_t msgSeq_;
+  uint32_t lastTelemetryMs_;
+  uint32_t telemetryCount_;
+  
+  // Reusable JSON buffers (preallocated to reduce heap churn)
+  StaticJsonDocument<384> helloDoc_;
+  StaticJsonDocument<256> ackDoc_;
+  StaticJsonDocument<256> progressDoc_;
+  StaticJsonDocument<256> doneDoc_;
+  StaticJsonDocument<384> errorDoc_;
+  StaticJsonDocument<96> pongDoc_;
 
   // Static trampoline vì WebSocketsClient callback là C-style function ptr
   static NetClient* s_instance;
@@ -66,4 +79,5 @@ class NetClient {
   void handleMessage(const String& payload);
   void sendHello();
   void sendEnvelope(JsonDocument& doc);
+  bool canSendTelemetry();
 };
