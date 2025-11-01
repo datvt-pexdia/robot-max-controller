@@ -1,12 +1,61 @@
 #pragma once
 
-#define SIMULATION false
+// ==== Wi-Fi & WS endpoint ====
+#define WIFI_SSID      "Huy Minh"
+#define WIFI_PASSWORD  "23052004"
+#define WS_HOST        "192.168.1.5"
+#define WS_PORT        8080
+#define WS_PATH        "/robot"
 
-static const char* WIFI_SSID = "Huy Minh";
-static const char* WIFI_PASS = "23052004";
-static const char* WS_HOST = "192.168.1.5";
-static const uint16_t WS_PORT = 8080;
-static const char* WS_PATH = "/robot";
+// ==== Modes ====
+#undef  SIMULATION
+#define SIMULATION     false   // true: log hành vi; false: điều khiển phần cứng thật
+
+// ==== Meccano M.A.X bus wiring ====
+// Dây trắng (chân D) từ MAX → chân ESP8266
+#ifndef MAX_DATA_PIN
+  #define MAX_DATA_PIN  D4      // đổi nếu bạn dùng chân khác
+#endif
+
+// Vị trí thiết bị motor trên chain (thứ tự device trên bus MAX)
+#ifndef MAX_LEFT_POS
+  #define MAX_LEFT_POS  0
+#endif
+#ifndef MAX_RIGHT_POS
+  #define MAX_RIGHT_POS  1
+#endif
+
+// Hướng "tiến" mặc định cho từng bánh (tuỳ cách gắn bánh của bạn)
+// Thường: TRÁI tiến = CCW, PHẢI tiến = CW. Nếu đẩy tiến mà xe lùi, đảo 0/1 tương ứng.
+#ifndef LEFT_FORWARD_IS_CCW
+  #define LEFT_FORWARD_IS_CCW   1  // 1: CCW là tiến, 0: CW là tiến
+#endif
+#ifndef RIGHT_FORWARD_IS_CCW
+  #define RIGHT_FORWARD_IS_CCW  0  // 1: CCW là tiến, 0: CW là tiến
+#endif
+
+// ==== Wheels Continuous Mode timing ====
+#ifndef WHEELS_TICK_MS
+  #define WHEELS_TICK_MS          33     // ~30 Hz
+#endif
+#ifndef SOFT_STOP_TIMEOUT_MS
+  #define SOFT_STOP_TIMEOUT_MS    150
+#endif
+#ifndef HARD_STOP_TIMEOUT_MS
+  #define HARD_STOP_TIMEOUT_MS    400
+#endif
+
+// Gửi lại frame (dù giữ nguyên) theo chu kỳ để thiết bị không "ngủ"
+#ifndef MAX_KEEPALIVE_MS
+  #define MAX_KEEPALIVE_MS        250
+#endif
+
+// ==== JSON buffers (ArduinoJson v6) ====
+#define JSON_RX_DOC_CAPACITY  512  // cân đối theo payload thực tế
+#define JSON_TX_DOC_CAPACITY  256
+
+// ==== Legacy compatibility (for existing code) ====
+static const char* WIFI_PASS = WIFI_PASSWORD;
 static const uint32_t WS_RECONNECT_BASE_MS = 1000;
 static const uint32_t WS_RECONNECT_MAX_MS = 5000;
 

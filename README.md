@@ -122,9 +122,21 @@ Example response:
 
 ## ESP8266 firmware
 
-The firmware is designed for NodeMCU-style ESP8266 boards. It defaults to simulation mode (`SIMULATION true`) which prints every action to the serial monitor.
+The firmware is designed for NodeMCU-style ESP8266 boards. It defaults to **REAL mode** (`SIMULATION false`) which controls actual Meccano M.A.X hardware. Set `SIMULATION true` to log actions to serial monitor instead.
 
-Update `firmware/src/Config.h` with your Wi-Fi credentials and server IP before flashing.
+Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
+
+### Meccano M.A.X Configuration
+
+When running in REAL mode (`SIMULATION false`), configure the MAX bus wiring in `Config.h`:
+
+- `MAX_DATA_PIN`: ESP8266 pin connected to MAX bus data wire (default: `D4`)
+- `MAX_LEFT_POS`: Device position of left motor on MAX chain (default: `0`)
+- `MAX_RIGHT_POS`: Device position of right motor on MAX chain (default: `1`)
+- `LEFT_FORWARD_IS_CCW`: `1` if left wheel forward = CCW, `0` if forward = CW (default: `1`)
+- `RIGHT_FORWARD_IS_CCW`: `1` if right wheel forward = CCW, `0` if forward = CW (default: `0`)
+
+If the robot moves backward when commanded to go forward, swap the `LEFT_FORWARD_IS_CCW`/`RIGHT_FORWARD_IS_CCW` values.
 
 ### Arduino CLI setup
 
@@ -159,8 +171,8 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 - **Replace vs enqueue:** replace cancels current + future tasks for each device; enqueue preserves the current task and appends to the queue.
 - **Task lifecycle callbacks:** the ESP responds with `ack`, `progress`, `done`, or `error` messages for each task so the server always knows the state.
 - **Robust reconnects:** Wi-Fi and WebSocket connections auto-retry with exponential backoff (1s → 5s). When the socket drops, all in-flight tasks are canceled to prevent desynchronisation.
-- **Heartbeats:** the server pings the ESP every 10s and treats missing pongs (>20s) as a disconnect.
-- **Wheels Continuous Mode:** the wheels device runs a continuous task that always sends signals to the motors every 10ms. Initially sends STOP signals, switches to direction signals when moving, and returns to STOP when idle. See `firmware/main/WHEELS_CONTINUOUS_MODE.md` for details.
+- **Heartbeats:** the server pings every **15s**; if no `pong` within **30s** the socket is dropped.
+- **Wheels Continuous Mode:** refresh **~30 Hz (every 33 ms)**; includes slew-rate smoothing and soft/hard stop safety.
 
 ## Troubleshooting
 
@@ -168,8 +180,29 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 - **Server status shows `connected:false`:** ensure the firmware is running and Wi-Fi is stable. The ESP sends a `hello` packet on connect which updates `lastHello`.
 - **Tasks not executing:** watch serial logs for cancellation messages. Replace requests preempt running tasks per device.
 
+## Real mode (Meccano M.A.X.)
+
+Mapping (community-verified):
+
+- Direction nybble: **0x2n = CW**, **0x3n = CCW**
+- Speed codes: **0x40 = STOP**, **0x42..0x4F** (14 steps; **0x41 unused**)
+
+**Config macros** (see `firmware/main/Config.h`):
+```c
+#define SIMULATION            false
+#define MAX_DATA_PIN          D4
+#define MAX_LEFT_POS          0
+#define MAX_RIGHT_POS         1
+#define LEFT_FORWARD_IS_CCW   1
+#define RIGHT_FORWARD_IS_CCW  0
+#define WHEELS_TICK_MS        33
+#define SOFT_STOP_TIMEOUT_MS  150
+#define HARD_STOP_TIMEOUT_MS  400
+#define MAX_KEEPALIVE_MS      250
+```
+Notes: Commands are emitted at 30 Hz; writes to bus happen on change or every `MAX_KEEPALIVE_MS` to prevent devices dozing.
+
 ## Next steps
 
-- Flip `SIMULATION` to `false` in `Config.h` and integrate actual Servo/motor drivers.
 - Extend `NetClient` to persist outbound telemetry if desired (e.g., local buffering when offline).
 - Add authentication by replacing the `JWT_DISABLED` placeholder once security requirements are defined.
