@@ -14,11 +14,7 @@ void ArmDevice::startTask(const TaskEnvelope& task, uint32_t now) {
   running = true;
   startMs = now;
   durationMs = task.durationMs > 0 ? task.durationMs : 800;
-#if SIMULATION
-  Serial.printf("[ARM] moving to %u° (taskId=%s) duration=%lu ms\n", task.angle, task.taskId.c_str(), durationMs);
-#else
   // TODO: integrate with Servo hardware
-#endif
 }
 
 void ArmDevice::tick(uint32_t now) {
@@ -27,19 +23,14 @@ void ArmDevice::tick(uint32_t now) {
   }
   if (now - startMs >= durationMs) {
     running = false;
-#if SIMULATION
-    Serial.printf("[ARM] completed taskId=%s\n", current.taskId.c_str());
-#endif
   }
 }
 
 void ArmDevice::cancel(uint32_t now) {
+  (void)now;
   if (!hasTask) {
     return;
   }
-#if SIMULATION
-  Serial.printf("[ARM] cancel taskId=%s at %lu ms\n", current.taskId.c_str(), now);
-#endif
   running = false;
   hasTask = false;
   current.taskId = "";

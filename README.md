@@ -1,6 +1,6 @@
 # robot-max-controller
 
-A minimal yet production-ready system to orchestrate a three-device robot (arm, neck, wheels) using a Node.js command server and an ESP8266 firmware client. The firmware runs in simulation mode by default so you can exercise the full stack without motors attached.
+A minimal yet production-ready system to orchestrate a three-device robot (arm, neck, wheels) using a Node.js command server and an ESP8266 firmware client. The firmware runs in REAL mode and controls Meccano M.A.X hardware.
 
 ## Project structure
 
@@ -18,14 +18,14 @@ project/
       models.ts      # Shared schemas/types
       taskQueue.ts   # In-memory task bookkeeping for status reporting
       wsHub.ts       # ESP WebSocket connection manager
-  firmware/          # ESP8266 Arduino firmware (simulation-first)
-    src/
-      Config.h       # Wi-Fi + WebSocket configuration
+  firmware/          # ESP8266 Arduino firmware (REAL-only)
+    main/
+      Config.h       # Wi-Fi + WebSocket + Meccano M.A.X configuration
       NetClient.*    # WebSocket client with reconnect logic
       TaskRunner.*   # Cooperative scheduler + device queues
       TaskTypes.h    # Shared task envelope struct
       main.ino       # Arduino setup/loop
-      Devices/       # Device-specific controllers (simulation aware)
+      Devices/       # Device-specific controllers (REAL-only)
         ArmDevice.*
         NeckDevice.*
         WheelsDevice.*
@@ -122,9 +122,9 @@ Example response:
 
 ## ESP8266 firmware
 
-The firmware is designed for NodeMCU-style ESP8266 boards. It defaults to simulation mode (`SIMULATION true`) which prints every action to the serial monitor.
+The firmware is designed for NodeMCU-style ESP8266 boards. It runs in REAL mode and controls Meccano M.A.X hardware.
 
-Update `firmware/src/Config.h` with your Wi-Fi credentials and server IP before flashing.
+Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
 
 ### Arduino CLI setup
 
@@ -132,6 +132,7 @@ Update `firmware/src/Config.h` with your Wi-Fi credentials and server IP before 
 arduino-cli core update-index
 arduino-cli core install esp8266:esp8266
 arduino-cli lib install "arduinoWebSockets" "ArduinoJson"
+arduino-cli lib install "MeccaChannel" "MeccaMaxDrive"
 ```
 
 ### Compile
@@ -154,13 +155,12 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 
 ## Firmware behaviour highlights
 
-- **Simulation friendly:** every device action (`[ARM]`, `[NECK]`, `[WHEELS]`) logs to serial with angles, speeds, durations, and completion notices.
 - **Single active client:** when the ESP connects, the server buffers any pending tasks and flushes them after the handshake.
 - **Replace vs enqueue:** replace cancels current + future tasks for each device; enqueue preserves the current task and appends to the queue.
 - **Task lifecycle callbacks:** the ESP responds with `ack`, `progress`, `done`, or `error` messages for each task so the server always knows the state.
 - **Robust reconnects:** Wi-Fi and WebSocket connections auto-retry with exponential backoff (1s → 5s). When the socket drops, all in-flight tasks are canceled to prevent desynchronisation.
-- **Heartbeats:** the server pings the ESP every 10s and treats missing pongs (>20s) as a disconnect.
-- **Wheels Continuous Mode:** the wheels device runs a continuous task that always sends signals to the motors every 10ms. Initially sends STOP signals, switches to direction signals when moving, and returns to STOP when idle. See `firmware/main/WHEELS_CONTINUOUS_MODE.md` for details.
+- **Heartbeats:** the server pings every **15s**; if no `pong` within **30s** the socket is dropped.
+- **Wheels Continuous Mode:** refresh **~30 Hz (every 33 ms)**; includes slew-rate smoothing and soft/hard stop safety.
 
 ## Troubleshooting
 
@@ -168,8 +168,29 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 - **Server status shows `connected:false`:** ensure the firmware is running and Wi-Fi is stable. The ESP sends a `hello` packet on connect which updates `lastHello`.
 - **Tasks not executing:** watch serial logs for cancellation messages. Replace requests preempt running tasks per device.
 
+## Real mode (Meccano M.A.X.)
+
+Mapping (community-verified):
+
+- Direction nybble: **0x2n = CW**, **0x3n = CCW**
+- Speed codes: **0x40 = STOP**, **0x42..0x4F** (14 steps; **0x41 unused**)
+
+**Config macros** (see `firmware/main/Config.h`):
+```c
+#define MAX_DATA_PIN          D4
+#define MAX_LEFT_POS          0
+#define MAX_RIGHT_POS         1
+#define LEFT_FORWARD_IS_CCW   1
+#define RIGHT_FORWARD_IS_CCW  0
+#define WHEELS_TICK_MS        33
+#define SOFT_STOP_TIMEOUT_MS  150
+#define HARD_STOP_TIMEOUT_MS  400
+#define MAX_KEEPALIVE_MS      250
+```
+Notes: Commands are emitted at 30 Hz; writes to bus happen on change or every `MAX_KEEPALIVE_MS` to prevent devices dozing.
+
 ## Next steps
 
-- Flip `SIMULATION` to `false` in `Config.h` and integrate actual Servo/motor drivers.
+- Integrate actual Servo hardware for Arm/Neck devices (currently TODO placeholders).
 - Extend `NetClient` to persist outbound telemetry if desired (e.g., local buffering when offline).
 - Add authentication by replacing the `JWT_DISABLED` placeholder once security requirements are defined.

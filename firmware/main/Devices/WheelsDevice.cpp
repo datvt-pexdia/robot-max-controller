@@ -117,10 +117,6 @@ void WheelsDevice::startTask(const TaskEnvelope& task, uint32_t now) {
     initializeMotors();
   }
 
-#if SIMULATION
-  Serial.printf("[WHEELS] drive L=%d R=%d duration=%lu ms (taskId=%s) continuousMode=%d\n",
-                task.left, task.right, durationMs, task.taskId.c_str(), continuousMode);
-#else
   const bool isStopBoth = (task.left == 0 && task.right == 0);
 
   // ---- Speed per wheel
@@ -173,7 +169,6 @@ void WheelsDevice::startTask(const TaskEnvelope& task, uint32_t now) {
     Serial.println("[WHEELS] startTask: motor not initialized or channel null");
 #endif
   }
-#endif
 }
 
 bool WheelsDevice::tryUpdate(const TaskEnvelope& task, uint32_t now) {
@@ -285,7 +280,6 @@ bool WheelsDevice::tryUpdate(const TaskEnvelope& task, uint32_t now) {
 void WheelsDevice::tick(uint32_t now) {
   if (!running) return;
 
-#if !SIMULATION
   // Nếu motor chưa initialized, thử detect lại (không block)
   if (!motorInitialized && channelMOTOR) {
     static uint32_t lastRetry = 0;
@@ -327,7 +321,6 @@ void WheelsDevice::tick(uint32_t now) {
     // tránh đói Wi-Fi
     yield();
   }
-#endif
 
   const uint8_t pct = progress(now);
 #if WHEELS_DEBUG
@@ -340,15 +333,11 @@ void WheelsDevice::tick(uint32_t now) {
   // Trong continuous mode, task không bao giờ kết thúc tự động
   if (!continuousMode && (now - startMs >= durationMs)) {
     running = false;
-#if SIMULATION
-    Serial.printf("[WHEELS] completed (id=%s)\n", current.taskId.c_str());
-#else
 #if WHEELS_DEBUG
     Serial.printf("[WHEELS] duration reached; stopping (elapsed=%lu, id=%s)\n",
                   (now - startMs), current.taskId.c_str());
 #endif
     stopMotors();
-#endif
   }
 }
 
@@ -362,7 +351,6 @@ void WheelsDevice::cancel(uint32_t now) {
 #if WHEELS_DEBUG
   Serial.printf("[WHEELS] cancel at %lu ms (id=%s) continuousMode=%d\n", now, current.taskId.c_str(), continuousMode);
 #endif
-#if !SIMULATION
   // Trong continuous mode, không dừng task, chỉ chuyển về trạng thái dừng
   if (continuousMode) {
     isMoving = false;
@@ -379,11 +367,6 @@ void WheelsDevice::cancel(uint32_t now) {
     hasTask = false;
     current.taskId = "";
   }
-#else
-  running = false;
-  hasTask = false;
-  current.taskId = "";
-#endif
 }
 
 void WheelsDevice::finish() {
@@ -431,7 +414,6 @@ void WheelsDevice::initializeMotors() {
   if (!channelMOTOR) channelMOTOR = new MeccaChannel(pinMOTOR);
   if (!drive)        drive        = new MeccaMaxDrive(channelMOTOR);
 
-#if !SIMULATION
   // Thử communicate một lần để bắt đầu discovery
   channelMOTOR->communicate();
   
@@ -443,10 +425,6 @@ void WheelsDevice::initializeMotors() {
     motorInitialized = false;
     Serial.println("[WHEELS] Motor device not detected yet, will retry in tick()...");
   }
-#else
-  motorInitialized = true; // Simulation mode
-  Serial.println("[WHEELS] Motors initialized (simulation mode)");
-#endif
 }
 
 void WheelsDevice::setMotorSpeed(uint8_t leftSpeed, uint8_t rightSpeed) {
