@@ -1,0 +1,9 @@
+// Config.local.h - Local configuration (gitignored)
+// Copy this file to Config.local.h and update with your credentials
+
+// Wi-Fi credentials
+#define WIFI_SSID "YourWiFiNetworkName"
+#define WIFI_PASS "YourWiFiPassword"
+
+// Optional: Override server IP (default is in Config.h)
+#define WS_HOST "192.168.1.5"

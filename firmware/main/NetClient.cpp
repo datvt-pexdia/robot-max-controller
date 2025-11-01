@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "TaskRunner.h"
+#include "Protocol.h"
 
 // static
 NetClient* NetClient::s_instance = nullptr;
@@ -16,7 +17,12 @@ NetClient::NetClient()
       reconnectDelay(WS_RECONNECT_BASE_MS),
       msgSeq_(0),
       lastTelemetryMs_(0),
-      telemetryCount_(0) {}
+      telemetryCount_(0),
+      wifiConnecting_(false),
+      lastWifiCheckMs_(0) {
+  // Initialize JSON buffer
+  jsonBuffer_[0] = '\0';
+}
 
 void NetClient::begin(TaskRunner* r) {
   runner = r;
@@ -24,23 +30,16 @@ void NetClient::begin(TaskRunner* r) {
 
   Serial.println("[NET] Initializing WebSocket client...");
 
-  // Wi-Fi khuyến nghị cho WS ổn định
+  // Configure Wi-Fi (non-blocking)
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
-  WiFi.setSleep(false);  // tránh modem-sleep làm trễ PONG
+  WiFi.setSleep(false);  // Prevent modem-sleep to avoid PONG delays
 
-  // Ensure Wi‑Fi connects before attempting WebSocket
+  // Start Wi-Fi connection (non-blocking)
+  Serial.printf("[NET] Starting WiFi connection to: %s\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  unsigned long t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && (millis() - t0) < 10000) { // 10s timeout
-    delay(100);
-    yield();
-  }
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[NET] WiFi connect timeout, will backoff & retry in loop()");
-  } else {
-    Serial.printf("[NET] WiFi connected, IP=%s\n", WiFi.localIP().toString().c_str());
-  }
+  wifiConnecting_ = true;
+  lastWifiCheckMs_ = millis();
 
   // Callback C-style -> trampoline
   ws.onEvent(&NetClient::onWsEventThunk);
@@ -50,14 +49,11 @@ void NetClient::begin(TaskRunner* r) {
   // but the library's internal reconnect will respect this interval
   ws.setReconnectInterval(2000);
 
-  // Heartbeat phía client: ping mỗi WS_HEARTBEAT_INTERVAL_MS, đợi PONG WS_HEARTBEAT_TIMEOUT_MS,
-  // fail sau WS_HEARTBEAT_TRIES lần -> lib sẽ phát sinh DISCONNECTED/ERROR để mình backoff.
+  // Heartbeat: ping every WS_HEARTBEAT_INTERVAL_MS, wait for PONG WS_HEARTBEAT_TIMEOUT_MS,
+  // fail after WS_HEARTBEAT_TRIES attempts -> library will generate DISCONNECTED/ERROR for backoff
   ws.enableHeartbeat(WS_HEARTBEAT_INTERVAL_MS,
                      WS_HEARTBEAT_TIMEOUT_MS,
                      WS_HEARTBEAT_TRIES);
-
-  // Nếu server yêu cầu subprotocol/headers riêng thì cân nhắc thêm; mặc định không cần.
-  // ws.setExtraHeaders("Connection: Upgrade");
 
   Serial.printf("[NET] WS cfg host=%s port=%u path=%s hb=%ums/%umsx%u\n",
                 WS_HOST, WS_PORT, WS_PATH,
@@ -65,15 +61,44 @@ void NetClient::begin(TaskRunner* r) {
                 (unsigned)WS_HEARTBEAT_TIMEOUT_MS,
                 (unsigned)WS_HEARTBEAT_TRIES);
 
-  connect();
+  // WebSocket connection will be attempted in loop() once WiFi is ready
 }
 
 void NetClient::loop() {
-  ws.loop();      // phải gọi thường xuyên (< ~50ms)
-  yield();        // nuôi Wi-Fi stack, tránh starvation
+  ws.loop();      // Must be called frequently (< ~50ms)
+  yield();        // Feed Wi-Fi stack to avoid starvation
 
-  if (!connected) {
-    const uint32_t now = millis();
+  const uint32_t now = millis();
+  
+  // Check Wi-Fi connection status periodically (non-blocking)
+  if (wifiConnecting_) {
+    if (now - lastWifiCheckMs_ >= 500) {  // Check every 500ms
+      lastWifiCheckMs_ = now;
+      wl_status_t status = WiFi.status();
+      
+      if (status == WL_CONNECTED) {
+        wifiConnecting_ = false;
+        Serial.printf("[NET] WiFi connected, IP=%s\n", WiFi.localIP().toString().c_str());
+      } else if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+        // Connection failed, retry after delay
+        wifiConnecting_ = false;
+        Serial.println("[NET] WiFi connection failed, will retry");
+        lastWifiCheckMs_ = now + 5000;  // Retry after 5s
+      }
+      // Otherwise still connecting, keep waiting
+    }
+  } else if (WiFi.status() != WL_CONNECTED) {
+    // WiFi disconnected, attempt reconnection
+    if (now - lastWifiCheckMs_ >= 5000) {
+      Serial.println("[NET] WiFi disconnected, attempting reconnect...");
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+      wifiConnecting_ = true;
+      lastWifiCheckMs_ = now;
+    }
+  }
+
+  // Attempt WebSocket connection if WiFi is ready and not already connected
+  if (!connected && WiFi.status() == WL_CONNECTED) {
     if (now - lastConnectAttempt >= reconnectDelay) {
       connect();
     }
@@ -83,7 +108,7 @@ void NetClient::loop() {
 void NetClient::sendAck(const String& taskId) {
   if (!connected || !canSendTelemetry()) return;
   ackDoc_.clear();
-  ackDoc_["kind"] = "ack";
+  ackDoc_["kind"] = Protocol::RESP_ACK;
   ackDoc_["taskId"] = taskId;
   ackDoc_["seq"] = ++msgSeq_;
   sendEnvelope(ackDoc_);
@@ -92,7 +117,7 @@ void NetClient::sendAck(const String& taskId) {
 void NetClient::sendProgress(const String& taskId, uint8_t pct, const String& note) {
   if (!connected || !canSendTelemetry()) return;
   progressDoc_.clear();
-  progressDoc_["kind"] = "progress";
+  progressDoc_["kind"] = Protocol::RESP_PROGRESS;
   progressDoc_["taskId"] = taskId;
   progressDoc_["pct"] = pct;
   progressDoc_["seq"] = ++msgSeq_;
@@ -105,7 +130,7 @@ void NetClient::sendProgress(const String& taskId, uint8_t pct, const String& no
 void NetClient::sendDone(const String& taskId) {
   if (!connected || !canSendTelemetry()) return;
   doneDoc_.clear();
-  doneDoc_["kind"] = "done";
+  doneDoc_["kind"] = Protocol::RESP_DONE;
   doneDoc_["taskId"] = taskId;
   doneDoc_["seq"] = ++msgSeq_;
   sendEnvelope(doneDoc_);
@@ -114,7 +139,7 @@ void NetClient::sendDone(const String& taskId) {
 void NetClient::sendError(const String& taskId, const String& message) {
   if (!connected || !canSendTelemetry()) return;
   errorDoc_.clear();
-  errorDoc_["kind"] = "error";
+  errorDoc_["kind"] = Protocol::RESP_ERROR;
   errorDoc_["seq"] = ++msgSeq_;
   if (taskId.length() > 0) {
     errorDoc_["taskId"] = taskId;
@@ -231,20 +256,20 @@ void NetClient::handleMessage(const String& payload) {
     return;
   }
 
-  if (strcmp(kind, "hello") == 0) {
+  if (strcmp(kind, Protocol::CMD_HELLO) == 0) {
     Serial.println("[NET] Server hello");
     return;
   }
 
   // Legacy task protocol (kept for backward compatibility, but new system uses "drive" messages)
-  if (strcmp(kind, "task.replace") == 0 || strcmp(kind, "task.enqueue") == 0) {
+  if (strcmp(kind, Protocol::CMD_TASK_REPLACE) == 0 || strcmp(kind, Protocol::CMD_TASK_ENQUEUE) == 0) {
     // Try to extract wheels drive tasks and convert to simplified protocol
     JsonArrayConst arr = doc["tasks"].as<JsonArrayConst>();
     for (JsonVariantConst item : arr) {
       if (!item.is<JsonObjectConst>()) continue;
       JsonObjectConst obj = item.as<JsonObjectConst>();
       const char* device = obj["device"] | "";
-      if (strcmp(device, "wheels") == 0) {
+      if (strcmp(device, Protocol::DEVICE_WHEELS) == 0) {
         int left = obj["left"] | 0;
         int right = obj["right"] | 0;
         uint32_t dur = obj["durationMs"] | 0;
@@ -256,18 +281,18 @@ void NetClient::handleMessage(const String& payload) {
     return;
   }
 
-  if (strcmp(kind, "task.cancel") == 0) {
+  if (strcmp(kind, Protocol::CMD_TASK_CANCEL) == 0) {
     const String device = doc["device"] | "";
     Serial.printf("[NET] cancel device=%s\n", device.c_str());
-    if (strcmp(device.c_str(), "wheels") == 0 && runner) {
+    if (strcmp(device.c_str(), Protocol::DEVICE_WHEELS) == 0 && runner) {
       runner->onDisconnected(); // Emergency stop wheels
     }
     return;
   }
 
-  if (strcmp(kind, "ping") == 0) {
+  if (strcmp(kind, Protocol::CMD_PING) == 0) {
     pongDoc_.clear();
-    pongDoc_["kind"] = "pong";
+    pongDoc_["kind"] = Protocol::RESP_PONG;
     pongDoc_["t"] = doc["t"] | (uint32_t)millis();
     pongDoc_["seq"] = ++msgSeq_;
     sendEnvelope(pongDoc_);
@@ -275,10 +300,30 @@ void NetClient::handleMessage(const String& payload) {
   }
 
   // Simplified drive protocol (low-latency wheels control)
-  if (strcmp(kind, "drive") == 0) {
-    int left = doc["left"] | 0;
-    int right = doc["right"] | 0;
+  if (strcmp(kind, Protocol::CMD_DRIVE) == 0) {
+    // Validate required fields
+    if (!doc.containsKey("left") || !doc.containsKey("right")) {
+      Serial.println("[NET] drive command missing left/right fields");
+      sendError("", "Missing left/right fields in drive command");
+      return;
+    }
+    
+    int left = doc["left"];
+    int right = doc["right"];
     uint32_t dur = doc["durationMs"] | 0;
+    
+    // Validate ranges
+    if (left < -100 || left > 100 || right < -100 || right > 100) {
+      Serial.printf("[NET] drive command out of range: left=%d right=%d\n", left, right);
+      sendError("", "Drive command values must be in range [-100, 100]");
+      return;
+    }
+    
+    if (dur > 60000) {  // Max 60 seconds
+      Serial.printf("[NET] drive command duration too long: %u ms\n", dur);
+      dur = 60000;  // Cap at 60s
+    }
+    
     if (runner) {
       // Call new simplified TaskRunner interface
       ((TaskRunner*)runner)->handleDriveTask((int8_t)left, (int8_t)right, dur);
@@ -287,11 +332,12 @@ void NetClient::handleMessage(const String& payload) {
   }
 
   Serial.printf("[NET] Unknown kind=%s\n", kind);
+  sendError("", String("Unknown command kind: ") + kind);
 }
 
 void NetClient::sendHello() {
   helloDoc_.clear();
-  helloDoc_["kind"] = "hello";
+  helloDoc_["kind"] = Protocol::CMD_HELLO;
   helloDoc_["espId"] = String(ESP.getChipId(), HEX);
   helloDoc_["fw"] = "robot-max-fw/1.0";
   helloDoc_["rssi"] = WiFi.RSSI();
@@ -323,7 +369,14 @@ void NetClient::sendEnvelope(JsonDocument& doc) {
     connected = false;
     return;
   }
-  String buffer;
-  serializeJson(doc, buffer);
-  ws.sendTXT(buffer);
+  // Use pre-allocated char buffer instead of String to reduce heap usage
+  size_t len = serializeJson(doc, jsonBuffer_, JSON_BUFFER_SIZE);
+  if (len > 0 && len < JSON_BUFFER_SIZE) {
+    ws.sendTXT(jsonBuffer_, len);
+  } else {
+    // Fallback to String if buffer too small (shouldn't happen with current message sizes)
+    String buffer;
+    serializeJson(doc, buffer);
+    ws.sendTXT(buffer);
+  }
 }

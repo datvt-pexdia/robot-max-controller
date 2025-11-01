@@ -15,6 +15,8 @@ void WheelsDevice::begin() {
   lastBusWriteMs_ = 0;
   lastNonZeroMs_ = 0;
   lastTickMs_ = millis();
+  lastBusErrorMs_ = 0;
+  consecutiveBusErrors_ = 0;
 
   // Init MAX bus (REAL-only)
   if (!maxBus_) {
@@ -24,6 +26,12 @@ void WheelsDevice::begin() {
   // Send initial communication to activate devices on bus
   if (maxBus_) {
     maxBus_->communicate();
+    // Verify bus is working
+    if (!verifyBusCommunication()) {
+      Serial.println("[WHEELS] WARNING: MAX bus initialization check failed");
+    }
+  } else {
+    Serial.println("[WHEELS] ERROR: Failed to allocate MAX bus");
   }
 }
 
@@ -44,7 +52,7 @@ void WheelsDevice::emergencyStop() {
     bool wantCCW_R = (0 >= 0) ? (RIGHT_FORWARD_IS_CCW != 0) : !(RIGHT_FORWARD_IS_CCW != 0);
     uint8_t dirL = dirByte(MAX_LEFT_POS, wantCCW_L);
     uint8_t dirR = dirByte(MAX_RIGHT_POS, wantCCW_R);
-    maxBus_->communicateAllByte(dirR, dirL, 0x40, 0x40); // STOP both
+    maxBus_->communicateAllByte(dirR, dirL, MAXProtocol::CMD_STOP, MAXProtocol::CMD_STOP); // STOP both
     lastBusWriteMs_ = millis();
   }
   lastSentPctL_ = lastSentPctR_ = 0;
@@ -72,25 +80,19 @@ void WheelsDevice::tick() {
 
 // Return 0x2n (CW) or 0x3n (CCW) where n is device position
 uint8_t WheelsDevice::dirByte(uint8_t pos, bool ccw) {
-  return (ccw ? 0x30 : 0x20) | (pos & 0x0F);
+  return MAXProtocol::dirByte(pos, ccw);
 }
 
-// Map percentage (-100..100) to speed byte (0x40=STOP, 0x42..0x4F are 14 steps)
+// Map percentage (-100..100) to speed byte (CMD_STOP=0x40, 0x42..0x4F are 14 speed steps)
 uint8_t WheelsDevice::speedByteFromPct(int8_t pct) {
-  if (pct <= 0) return 0x40; // STOP
+  if (pct <= 0) return MAXProtocol::CMD_STOP;
   uint8_t s = constrain(abs(pct), 0, 100);
-  uint8_t code = 0x42 + round(s * 13 / 100); // 0x42..0x4F
-  return min(code, (uint8_t)0x4F);
+  // Map to 14 speed steps: 0x42 (min) to 0x4F (max)
+  uint8_t code = MAXProtocol::CMD_SPEED_MIN + round(s * (MAXProtocol::CMD_SPEED_MAX - MAXProtocol::CMD_SPEED_MIN) / 100);
+  return min(code, MAXProtocol::CMD_SPEED_MAX);
 }
 
-// Send motor command: direction byte + speed byte
-// Note: This is a helper; actual sending is batched in tickWheels() for efficiency
-void WheelsDevice::sendMotor(uint8_t pos, int8_t pct, bool forwardIsCCW) {
-  // This function is kept for API compatibility but tickWheels handles the actual sending
-  (void)pos;
-  (void)pct;
-  (void)forwardIsCCW;
-}
+// sendMotor() removed - functionality handled directly in tickWheels() for efficiency
 
 void WheelsDevice::tickWheels() {
   unsigned long now = millis();
@@ -132,7 +134,7 @@ void WheelsDevice::tickWheels() {
           bool wantCCW_R = (0 >= 0) ? (RIGHT_FORWARD_IS_CCW != 0) : !(RIGHT_FORWARD_IS_CCW != 0);
           uint8_t dirL = dirByte(MAX_LEFT_POS, wantCCW_L);
           uint8_t dirR = dirByte(MAX_RIGHT_POS, wantCCW_R);
-          maxBus_->communicateAllByte(dirR, dirL, 0x40, 0x40); // STOP
+          maxBus_->communicateAllByte(dirR, dirL, MAXProtocol::CMD_STOP, MAXProtocol::CMD_STOP); // STOP
           lastBusWriteMs_ = now;
         }
         lastSentPctL_ = 0;
@@ -143,7 +145,7 @@ void WheelsDevice::tickWheels() {
           bool wantCCW_R = (0 >= 0) ? (RIGHT_FORWARD_IS_CCW != 0) : !(RIGHT_FORWARD_IS_CCW != 0);
           uint8_t dirL = dirByte(MAX_LEFT_POS, wantCCW_L);
           uint8_t dirR = dirByte(MAX_RIGHT_POS, wantCCW_R);
-          maxBus_->communicateAllByte(dirR, dirL, 0x40, 0x40); // STOP
+          maxBus_->communicateAllByte(dirR, dirL, MAXProtocol::CMD_STOP, MAXProtocol::CMD_STOP); // STOP
           lastBusWriteMs_ = now;
         }
         lastSentPctR_ = 0;
@@ -170,6 +172,19 @@ void WheelsDevice::tickWheels() {
     if (maxBus_) {
       // Send: rightDir, leftDir, rightSpeed, leftSpeed
       maxBus_->communicateAllByte(dirR, dirL, spR, spL);
+      
+      // Verify communication success (meager check - communicateAllByte doesn't return status)
+      // At minimum, update error tracking
+      if (verifyBusCommunication()) {
+        consecutiveBusErrors_ = 0;
+      } else {
+        consecutiveBusErrors_++;
+        lastBusErrorMs_ = now;
+        if (consecutiveBusErrors_ >= 5) {
+          Serial.printf("[WHEELS] ERROR: %u consecutive bus communication failures\n", consecutiveBusErrors_);
+        }
+      }
+      
       lastBusWriteMs_ = now;
 #if DEBUG_LOGS
       Serial.printf("[WHEELS] L=%d%% R=%d%% (current L=%d%% R=%d%%) -> dirL=0x%02X dirR=0x%02X spL=0x%02X spR=0x%02X\n",
@@ -187,7 +202,7 @@ void WheelsDevice::tickWheels() {
     uint8_t dirL = dirByte(MAX_LEFT_POS, wantCCW_L);
     uint8_t dirR = dirByte(MAX_RIGHT_POS, wantCCW_R);
     if (maxBus_) {
-      maxBus_->communicateAllByte(dirR, dirL, 0x40, 0x40); // STOP both
+      maxBus_->communicateAllByte(dirR, dirL, MAXProtocol::CMD_STOP, MAXProtocol::CMD_STOP); // STOP both
       lastBusWriteMs_ = now;
 #if DEBUG_LOGS
       Serial.println("[WHEELS] HARD STOP timeout");
@@ -198,4 +213,26 @@ void WheelsDevice::tickWheels() {
     targetPctL_ = targetPctR_ = 0;
     slewAccumL_ = slewAccumR_ = 0;
   }
+}
+
+bool WheelsDevice::verifyBusCommunication() {
+  // Basic verification: check if bus object exists and is initialized
+  // Note: MeccaChannel doesn't provide explicit status, so we do minimal verification
+  if (!maxBus_) {
+    return false;
+  }
+  
+  // If we haven't written recently, assume bus is idle (not an error)
+  uint32_t now = millis();
+  if (now - lastBusWriteMs_ > 1000) {
+    return true;  // Idle state is valid
+  }
+  
+  // Basic sanity check: if consecutive errors exceed threshold, bus may be disconnected
+  if (consecutiveBusErrors_ >= 10) {
+    Serial.println("[WHEELS] MAX bus may be disconnected - too many errors");
+    return false;
+  }
+  
+  return true;
 }

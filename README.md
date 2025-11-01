@@ -124,7 +124,14 @@ Example response:
 
 The firmware is designed for NodeMCU-style ESP8266 boards and runs in REAL mode only.
 
-Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
+**Configure Wi-Fi credentials:** Create `firmware/main/Config.local.h` with your credentials:
+```c
+#define WIFI_SSID "YourNetworkName"
+#define WIFI_PASS "YourPassword"
+#define WS_HOST "192.168.1.5"  // Optional: override server IP
+```
+
+This file is gitignored and will not be committed. Defaults are provided in `Config.h` for initial testing.
 
 **Required libraries:**
 - `arduinoWebSockets >= 2.3.6`
@@ -192,18 +199,22 @@ The firmware controls Meccano M.A.X hardware using the MAX bus protocol.
 - Direction nybble: **0x2n = CW**, **0x3n = CCW**
 - Speed codes: **0x40 = STOP**, **0x42..0x4F** (14 steps; **0x41 unused**)
 
-**Config macros** (see `firmware/main/Config.h`):
+**Configuration constants** (see `firmware/main/Config.h`):
 ```c
-#define MAX_DATA_PIN          D4
-#define MAX_LEFT_POS          0
-#define MAX_RIGHT_POS         1
-#define LEFT_FORWARD_IS_CCW   1
-#define RIGHT_FORWARD_IS_CCW  0
-#define WHEELS_TICK_MS        33
-#define SOFT_STOP_TIMEOUT_MS  150
-#define HARD_STOP_TIMEOUT_MS  400
-#define MAX_KEEPALIVE_MS      250
+static constexpr uint8_t MAX_DATA_PIN = D4;
+static constexpr uint8_t MAX_LEFT_POS = 0;
+static constexpr uint8_t MAX_RIGHT_POS = 1;
+static constexpr bool LEFT_FORWARD_IS_CCW = true;
+static constexpr bool RIGHT_FORWARD_IS_CCW = false;
+static constexpr uint32_t WHEELS_TICK_MS = 33;
+static constexpr uint32_t SOFT_STOP_TIMEOUT_MS = 150;
+static constexpr uint32_t HARD_STOP_TIMEOUT_MS = 400;
+static constexpr uint32_t MAX_KEEPALIVE_MS = 250;
 ```
+
+**MAX Protocol Constants** (see `firmware/main/Config.h`):
+- Speed commands: `MAXProtocol::CMD_STOP` (0x40), `CMD_SPEED_MIN` (0x42), `CMD_SPEED_MAX` (0x4F)
+- Direction helpers: `MAXProtocol::dirByte(pos, ccw)` creates direction bytes (0x2n for CW, 0x3n for CCW)
 
 **Notes:** Commands are emitted at **~30 Hz**; writes to bus happen on change or every `MAX_KEEPALIVE_MS` to prevent devices from dozing. Soft stop activates after **150ms** of no commands; hard stop triggers after **400ms**.
 
@@ -222,6 +233,19 @@ curl -X POST http://<SERVER_IP>:8080/robot/tasks/replace \
   -H "Content-Type: application/json" \
   -d '{"tasks":[{"taskId":"t2","device":"wheels","type":"drive","left":-50,"right":50,"durationMs":800}]}'
 ```
+
+## Recent Refactoring Changes
+
+The codebase has been refactored for better maintainability and efficiency:
+
+- **Configuration Management:** Credentials moved to `Config.local.h` (gitignored) for security
+- **Type Safety:** Replaced `#define` macros with `constexpr` constants where possible
+- **Protocol Constants:** Created `Protocol.h` and `MAXProtocol` namespace for consistent command strings and MAX bus commands
+- **State Machines:** Replaced boolean flags with `DeviceState` enum for Arm/Neck devices
+- **Non-blocking Wi-Fi:** Wi-Fi connection is now non-blocking, checked periodically in `loop()`
+- **Memory Optimization:** JSON serialization uses pre-allocated char buffers instead of String objects
+- **Error Handling:** Added MAX bus communication error tracking and validation in command handlers
+- **Code Cleanup:** Removed unused functions and improved inline documentation
 
 ## Next steps
 

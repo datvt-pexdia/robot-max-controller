@@ -55,6 +55,10 @@ class NetClient {
   uint32_t lastConnectAttempt;
   uint32_t reconnectDelay;
   
+  // Wi-Fi non-blocking connection state
+  bool wifiConnecting_;
+  uint32_t lastWifiCheckMs_;
+  
   // Message sequencing and rate limiting
   uint32_t msgSeq_;
   uint32_t lastTelemetryMs_;
@@ -67,6 +71,10 @@ class NetClient {
   StaticJsonDocument<256> doneDoc_;
   StaticJsonDocument<384> errorDoc_;
   StaticJsonDocument<96> pongDoc_;
+  
+  // Shared char buffer for JSON serialization (avoids String heap allocation)
+  static constexpr size_t JSON_BUFFER_SIZE = 512;
+  char jsonBuffer_[JSON_BUFFER_SIZE];
 
   // Static trampoline vì WebSocketsClient callback là C-style function ptr
   static NetClient* s_instance;

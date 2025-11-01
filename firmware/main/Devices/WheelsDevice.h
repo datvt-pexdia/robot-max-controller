@@ -36,10 +36,16 @@ private:
 
   // MAX bus (REAL-only)
   MeccaChannel* maxBus_ = nullptr;
+  
+  // Bus communication error tracking
 
   // Helper functions for MAX mapping
   static inline uint8_t dirByte(uint8_t pos, bool ccw);
   static inline uint8_t speedByteFromPct(int8_t pct);
-  void sendMotor(uint8_t pos, int8_t pct, bool forwardIsCCW);
   void tickWheels();
+  
+  // MAX bus error handling
+  bool verifyBusCommunication();
+  uint32_t lastBusErrorMs_;
+  uint8_t consecutiveBusErrors_;
 };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DeviceBase.h"
+#include "DeviceState.h"
 
 class ArmDevice : public DeviceBase {
  public:
@@ -17,8 +18,7 @@ class ArmDevice : public DeviceBase {
 
  private:
   TaskEnvelope current;
-  bool running;
-  bool hasTask;
+  DeviceState state_;  // State machine instead of boolean flags
   uint32_t startMs;
   uint32_t durationMs;
 };
