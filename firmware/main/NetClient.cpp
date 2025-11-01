@@ -42,8 +42,10 @@ void NetClient::begin(TaskRunner* r) {
   // Callback C-style -> trampoline
   ws.onEvent(&NetClient::onWsEventThunk);
 
-  // Tự mình quản lý backoff, nên tắt auto-reconnect bên trong lib
-  ws.setReconnectInterval(0);
+  // Set reconnect interval to 2000ms to prevent reconnect spam
+  // Note: We still manage exponential backoff manually in scheduleReconnect()
+  // but the library's internal reconnect will respect this interval
+  ws.setReconnectInterval(2000);
 
   // Heartbeat phía client: ping mỗi WS_HEARTBEAT_INTERVAL_MS, đợi PONG WS_HEARTBEAT_TIMEOUT_MS,
   // fail sau WS_HEARTBEAT_TRIES lần -> lib sẽ phát sinh DISCONNECTED/ERROR để mình backoff.
@@ -165,6 +167,11 @@ void NetClient::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
       // No need to start continuous task here - tick() handles it
       break;
     }
+    case WStype_PONG: {
+      // Heartbeat pong received - connection is alive
+      // The library's enableHeartbeat() handles this automatically
+      break;
+    }
     case WStype_DISCONNECTED: {
       // length không phải “code” chuẩn; chỉ log tối thiểu
       Serial.println("[NET] WebSocket DISCONNECTED");
@@ -189,9 +196,6 @@ void NetClient::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
     }
     case WStype_PING:
       // lib sẽ tự PONG, không cần log
-      break;
-    case WStype_PONG:
-      // ok
       break;
     default:
       break;
@@ -281,6 +285,12 @@ void NetClient::sendHello() {
 
 void NetClient::sendEnvelope(JsonDocument& doc) {
   if (!connected) return;
+  // Double-check WebSocket connection state before sending
+  // getConnectionState() returns WStype_CONNECTED when connected
+  if (ws.getConnectionState() != WStype_CONNECTED) {
+    connected = false;
+    return;
+  }
   String buffer;
   serializeJson(doc, buffer);
   ws.sendTXT(buffer);

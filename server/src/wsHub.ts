@@ -51,15 +51,28 @@ export class WsHub {
   private browserConnectionHandler?: (socket: WebSocket) => void;
 
   constructor(server: http.Server) {
+    // Create WebSocketServer without server binding (we'll handle upgrade manually)
     this.wss = new WebSocketServer({
-      server,
-      path: WS_PATH,
+      noServer: true,
       perMessageDeflate: WS_PERMESSAGE_DEFLATE,
       maxPayload: WS_MAX_PAYLOAD,
-      noServer: false,
       clientTracking: true,
     });
     this.wss.on('connection', (socket, req) => this.handleConnection(socket, req));
+    
+    // Handle upgrade manually to filter by path
+    server.on('upgrade', (req, socket, head) => {
+      const { pathname } = new URL(req.url || '', `ws://${req.headers.host}`);
+      if (pathname !== WS_PATH) {
+        wsLog(`Rejecting upgrade: wrong path '${pathname}' (expected '${WS_PATH}')`);
+        socket.destroy();
+        return;
+      }
+      this.wss.handleUpgrade(req, socket, head, (ws) => {
+        this.wss.emit('connection', ws, req);
+      });
+    });
+    
     wsLog(`WebSocket hub ready on ws://0.0.0.0:${HTTP_PORT}${WS_PATH}`);
   }
 
@@ -190,11 +203,12 @@ export class WsHub {
       (socket as any)._socket?.setNoDelay?.(true);
     } catch {}
 
-    // Đánh dấu đã nhận "pong" ngay lúc connect để tránh timeout sớm
-    this.lastPong = Date.now();
+    // Mark socket as alive and set up heartbeat tracking
+    (socket as any).isAlive = true;
 
     // Listen protocol-level pings/pongs (client-side heartbeat của firmware/WS lib)
     socket.on('pong', () => {
+      (socket as any).isAlive = true;
       this.lastPong = Date.now();
     });
 
@@ -270,7 +284,8 @@ export class WsHub {
   /**
    * Heartbeat:
    * - Gửi protocol-level ping (socket.ping()) mỗi WS_HEARTBEAT_MS (15s).
-   * - Nếu quá WS_LIVENESS_GRACE_MS (30s) không thấy pong, terminate.
+   * - Mark socket as not alive before ping, check isAlive flag after timeout.
+   * - Terminate if not alive (no pong received).
    */
   private startHeartbeat(): void {
     if (this.heartbeatTimer) {
@@ -280,11 +295,12 @@ export class WsHub {
       if (!this.espSocket || this.espSocket.readyState !== WebSocket.OPEN) {
         return;
       }
-      const now = Date.now();
       
-      // Liveness check: if no pong within grace period, terminate
-      if (now - this.lastPong > WS_LIVENESS_GRACE_MS) {
-        wsLog('[WS] no pong within grace; terminating socket');
+      const socket = this.espSocket as any;
+      
+      // Check if socket is alive (responded to previous ping)
+      if (socket.isAlive === false) {
+        wsLog('[WS] No pong received; terminating socket');
         try {
           this.espSocket.terminate();
         } catch {}
@@ -292,7 +308,8 @@ export class WsHub {
         return;
       }
 
-      // Protocol-level ping (browsers auto-pong)
+      // Mark as not alive and send ping
+      socket.isAlive = false;
       try {
         this.espSocket.ping();
       } catch (e) {

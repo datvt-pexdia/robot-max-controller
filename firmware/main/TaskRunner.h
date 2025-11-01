@@ -17,4 +17,16 @@ public:
 private:
   WheelsDevice wheels_;
   uint32_t lastWheelsTick_ = 0;
+  
+  // Drive command coalescing - only process latest command every ~33ms
+  struct PendingDrive {
+    int8_t left;
+    int8_t right;
+    uint32_t durationMs;
+    bool hasPending;
+  };
+  PendingDrive pendingDrive_{0, 0, 0, false};
+  uint32_t lastDriveProcessMs_ = 0;
+  
+  void processPendingDrive();
 };
