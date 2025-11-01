@@ -122,18 +122,13 @@ Example response:
 
 ## ESP8266 firmware
 
-<<<<<<< HEAD
 The firmware is designed for NodeMCU-style ESP8266 boards. It runs in REAL mode and controls Meccano M.A.X hardware.
-
-Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
-=======
-The firmware is designed for NodeMCU-style ESP8266 boards. It defaults to **REAL mode** (`SIMULATION false`) which controls actual Meccano M.A.X hardware. Set `SIMULATION true` to log actions to serial monitor instead.
 
 Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
 
 ### Meccano M.A.X Configuration
 
-When running in REAL mode (`SIMULATION false`), configure the MAX bus wiring in `Config.h`:
+Configure the MAX bus wiring in `Config.h`:
 
 - `MAX_DATA_PIN`: ESP8266 pin connected to MAX bus data wire (default: `D4`)
 - `MAX_LEFT_POS`: Device position of left motor on MAX chain (default: `0`)
@@ -142,7 +137,6 @@ When running in REAL mode (`SIMULATION false`), configure the MAX bus wiring in 
 - `RIGHT_FORWARD_IS_CCW`: `1` if right wheel forward = CCW, `0` if forward = CW (default: `0`)
 
 If the robot moves backward when commanded to go forward, swap the `LEFT_FORWARD_IS_CCW`/`RIGHT_FORWARD_IS_CCW` values.
->>>>>>> a6f534eb9db26fd35b6623fcd6d33d67f795d0f4
 
 ### Arduino CLI setup
 
@@ -178,7 +172,7 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 - **Task lifecycle callbacks:** the ESP responds with `ack`, `progress`, `done`, or `error` messages for each task so the server always knows the state.
 - **Robust reconnects:** Wi-Fi and WebSocket connections auto-retry with exponential backoff (1s → 5s). When the socket drops, all in-flight tasks are canceled to prevent desynchronisation.
 - **Heartbeats:** the server pings every **15s**; if no `pong` within **30s** the socket is dropped.
-- **Wheels Continuous Mode:** refresh **~30 Hz (every 33 ms)**; includes slew-rate smoothing and soft/hard stop safety.
+- **Wheels Continuous Mode:** refresh **~30 Hz (every 33 ms)**; includes slew-rate smoothing, soft/hard stop safety, and keep-alive to prevent devices from dozing.
 
 ## Troubleshooting
 
@@ -186,19 +180,16 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 - **Server status shows `connected:false`:** ensure the firmware is running and Wi-Fi is stable. The ESP sends a `hello` packet on connect which updates `lastHello`.
 - **Tasks not executing:** watch serial logs for cancellation messages. Replace requests preempt running tasks per device.
 
-## Real mode (Meccano M.A.X.)
+## Meccano M.A.X (REAL-only)
 
-Mapping (community-verified):
+The firmware controls Meccano M.A.X hardware using the MAX bus protocol.
 
+**Mapping (community-verified):**
 - Direction nybble: **0x2n = CW**, **0x3n = CCW**
 - Speed codes: **0x40 = STOP**, **0x42..0x4F** (14 steps; **0x41 unused**)
 
 **Config macros** (see `firmware/main/Config.h`):
 ```c
-<<<<<<< HEAD
-=======
-#define SIMULATION            false
->>>>>>> a6f534eb9db26fd35b6623fcd6d33d67f795d0f4
 #define MAX_DATA_PIN          D4
 #define MAX_LEFT_POS          0
 #define MAX_RIGHT_POS         1
@@ -209,13 +200,11 @@ Mapping (community-verified):
 #define HARD_STOP_TIMEOUT_MS  400
 #define MAX_KEEPALIVE_MS      250
 ```
-Notes: Commands are emitted at 30 Hz; writes to bus happen on change or every `MAX_KEEPALIVE_MS` to prevent devices dozing.
+
+**Notes:** Commands are emitted at **~30 Hz**; writes to bus happen on change or every `MAX_KEEPALIVE_MS` to prevent devices from dozing. Soft stop activates after **150ms** of no commands; hard stop triggers after **400ms**.
 
 ## Next steps
 
-<<<<<<< HEAD
 - Integrate actual Servo hardware for Arm/Neck devices (currently TODO placeholders).
-=======
->>>>>>> a6f534eb9db26fd35b6623fcd6d33d67f795d0f4
 - Extend `NetClient` to persist outbound telemetry if desired (e.g., local buffering when offline).
 - Add authentication by replacing the `JWT_DISABLED` placeholder once security requirements are defined.

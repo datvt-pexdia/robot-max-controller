@@ -4,10 +4,8 @@
 #include "../TaskTypes.h"
 #include "../Config.h"
 
-#if !SIMULATION
-  #include <MeccaChannel.h>
-  #include <MeccaMaxDrive.h>
-#endif
+#include <MeccaChannel.h>
+#include <MeccaMaxDrive.h>
 
 class WheelsDevice {
 public:
@@ -26,11 +24,8 @@ private:
   uint32_t lastCmdAt_ = 0;            // để soft-stop
   uint32_t deadlineAt_ = 0;           // nếu durationMs > 0
 
-#if !SIMULATION
-  MeccaChannel*        maxBus_ = nullptr;
-  MeccaMaxMotorDevice* motorL_ = nullptr;
-  MeccaMaxMotorDevice* motorR_ = nullptr;
-#endif
+  // MAX bus + devices (REAL-only)
+  MeccaChannel* maxBus_ = nullptr;
 
   // Cache để giảm chatter
   uint8_t  lastDirL_    = 0xFF;
