@@ -137,6 +137,10 @@ void WheelsDevice::tickWheels() {
       // Send: rightDir, leftDir, rightSpeed, leftSpeed
       maxBus_->communicateAllByte(dirR, dirL, spR, spL);
       lastBusWriteMs_ = now;
+#if DEBUG_LOGS
+      Serial.printf("[WHEELS] L=%d%% R=%d%% -> dirL=0x%02X dirR=0x%02X spL=0x%02X spR=0x%02X\n",
+                    targetPctL_, targetPctR_, dirL, dirR, spL, spR);
+#endif
     }
     lastSentPctL_ = targetPctL_;
     lastSentPctR_ = targetPctR_;
@@ -151,6 +155,9 @@ void WheelsDevice::tickWheels() {
     if (maxBus_) {
       maxBus_->communicateAllByte(dirR, dirL, 0x40, 0x40); // STOP both
       lastBusWriteMs_ = now;
+#if DEBUG_LOGS
+      Serial.println("[WHEELS] HARD STOP timeout");
+#endif
     }
     lastSentPctL_ = lastSentPctR_ = 0;
   }

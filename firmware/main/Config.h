@@ -3,6 +3,9 @@
 // ==== SIMULATION (disabled - REAL mode only) ====
 #define SIMULATION            0
 
+// ==== DEBUG logs (optional: enable serial logs without SIMULATION) ====
+#define DEBUG_LOGS            1
+
 // ==== Wi-Fi & WS endpoint ====
 static const char* WIFI_SSID = "Huy Minh";
 static const char* WIFI_PASS = "23052004";

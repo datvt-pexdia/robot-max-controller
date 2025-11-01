@@ -66,22 +66,9 @@ export function buildRouter(wsHub: WsHub): express.Router {
         'replace'
       );
 
-      httpLog(
-        `POST /robot/tasks/replace (${tasks.length} task${tasks.length === 1 ? '' : 's'})`
-      );
-      for (const t of tasks) {
-        // Brief, structured log
-        httpLog(
-          `[TASK] replace ${t.device}: ${t.type}` +
-            (typeof (t as any).left === 'number' && typeof (t as any).right === 'number'
-              ? ` L=${(t as any).left} R=${(t as any).right}`
-              : '') +
-            (typeof (t as any).durationMs === 'number' ? ` ${((t as any).durationMs)}ms` : '') +
-            ` (taskId=${t.taskId})`
-        );
-      }
-
       wsHub.sendReplaceTasks(tasks);
+      const status = wsHub.getStatus();
+      httpLog(`POST /robot/tasks/replace (${tasks.length} tasks)`, { queueSizes: status.queueSizes });
       res.status(202).json({ status: 'queued', mode: 'replace', count: tasks.length });
     } catch (err) {
       next(err);
@@ -99,21 +86,9 @@ export function buildRouter(wsHub: WsHub): express.Router {
         'enqueue'
       );
 
-      httpLog(
-        `POST /robot/tasks/enqueue (${tasks.length} task${tasks.length === 1 ? '' : 's'})`
-      );
-      for (const t of tasks) {
-        httpLog(
-          `[TASK] enqueue ${t.device}: ${t.type}` +
-            (typeof (t as any).left === 'number' && typeof (t as any).right === 'number'
-              ? ` L=${(t as any).left} R=${(t as any).right}`
-              : '') +
-            (typeof (t as any).durationMs === 'number' ? ` ${((t as any).durationMs)}ms` : '') +
-            ` (taskId=${t.taskId})`
-        );
-      }
-
       wsHub.sendEnqueueTasks(tasks);
+      const status = wsHub.getStatus();
+      httpLog(`POST /robot/tasks/enqueue (${tasks.length} tasks)`, { queueSizes: status.queueSizes });
       res.status(202).json({ status: 'queued', mode: 'enqueue', count: tasks.length });
     } catch (err) {
       next(err);
