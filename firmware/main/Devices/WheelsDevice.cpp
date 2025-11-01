@@ -13,12 +13,16 @@ void WheelsDevice::begin() {
   lastCmdAt_ = millis();
   deadlineAt_ = 0;
 
-#if !SIMULATION
-  // Khởi tạo MAX bus + drive controller (theo ví dụ DriveTest.ino)
-  if (!maxBus_) maxBus_ = new MeccaChannel(MAX_DATA_PIN);
-  if (!drive_)  drive_  = new MeccaMaxDrive(maxBus_);
+  lastDirL_ = lastDirR_ = 0xFF;
+  lastSpeedL_ = lastSpeedR_ = 0xFF;
+  lastFrameAt_ = 0;
 
-  // Nếu cần, gọi communicate() để khởi tạo bus (xem DriveTest.ino)
+#if !SIMULATION
+  if (!maxBus_)  maxBus_ = new MeccaChannel(MAX_DATA_PIN);
+  if (!motorL_)  motorL_ = new MeccaMaxMotorDevice(*maxBus_, MAX_LEFT_POS);
+  if (!motorR_)  motorR_ = new MeccaMaxMotorDevice(*maxBus_, MAX_RIGHT_POS);
+
+  // Gửi một lượt communicate để kích hoạt thiết bị trên bus (giống DriveTest.ino)
   if (maxBus_) {
     maxBus_->communicate();
   }
@@ -76,22 +80,14 @@ uint8_t WheelsDevice::speedCodeFromNorm(float v) const {
   return (uint8_t)(0x41 + step); // 0x42..0x4F
 }
 
-// Trả về 0x2n (CW) hoặc 0x3n (CCW) tuỳ hướng "tiến" cấu hình cho mỗi bánh
-// n = speed level (0x2..0xF) từ speed code (0x42..0x4F → n = 0x2..0xF)
+// Trả về 0x2n(CW) / 0x3n(CCW) theo hướng "tiến" cấu hình cho từng bánh
 uint8_t WheelsDevice::dirCodeForWheel(bool isLeft, float v) const {
-  const uint8_t DIR_CW_BASE  = 0x20;
-  const uint8_t DIR_CCW_BASE = 0x30;
+  const uint8_t DIR_CW  = 0x20;
+  const uint8_t DIR_CCW = 0x30;
   const bool forwardIsCCW = isLeft ? (LEFT_FORWARD_IS_CCW != 0) : (RIGHT_FORWARD_IS_CCW != 0);
   const bool forwardCmd   = (v >= 0.0f);
   bool wantCCW = forwardCmd ? forwardIsCCW : !forwardIsCCW;
-  
-  uint8_t speedCode = speedCodeFromNorm(v);
-  if (speedCode == 0x40) return 0x40; // STOP
-  
-  // Extract speed level (0x42..0x4F → 0x2..0xF)
-  uint8_t speedLevel = speedCode - 0x40; // 0x42-0x40=0x2, ..., 0x4F-0x40=0xF
-  
-  return wantCCW ? (DIR_CCW_BASE | speedLevel) : (DIR_CW_BASE | speedLevel);
+  return wantCCW ? DIR_CCW : DIR_CW;
 }
 
 void WheelsDevice::driveMotors(float normL, float normR) {
@@ -103,16 +99,31 @@ void WheelsDevice::driveMotors(float normL, float normR) {
     lastLog = now;
   }
 #else
-  if (!maxBus_ || !drive_) return;
+  if (!maxBus_) return;
+  const uint32_t now = millis();
 
-  // Map normalized values to MAX command bytes
-  uint8_t cmdL = dirCodeForWheel(true, normL);
-  uint8_t cmdR = dirCodeForWheel(false, normR);
+  // Frame hiện tại
+  const uint8_t spL = speedCodeFromNorm(normL);
+  const uint8_t spR = speedCodeFromNorm(normR);
+  const uint8_t dirL = (spL == 0x40) ? dirCodeForWheel(true,  0.0f) : dirCodeForWheel(true,  normL);
+  const uint8_t dirR = (spR == 0x40) ? dirCodeForWheel(false, 0.0f) : dirCodeForWheel(false, normR);
 
-  // Gửi lệnh xuống MAX bus (theo pattern trong DriveTest.ino)
-  // communicateAllByte(leftByte, rightByte, 0xFE, 0xFE)
-  maxBus_->communicateAllByte(cmdL, cmdR, 0xFE, 0xFE);
-  
-  // Gợi ý: nếu thấy "chatter", có thể cache step hiện tại, chỉ gửi khi step/dir đổi.
+  const bool chgL = (dirL != lastDirL_) || (spL != lastSpeedL_);
+  const bool chgR = (dirR != lastDirR_) || (spR != lastSpeedR_);
+  const bool needKeepAlive = (now - lastFrameAt_) >= MAX_KEEPALIVE_MS;
+
+  if (!(chgL || chgR || needKeepAlive)) {
+    return;
+  }
+
+  // Theo mapping community: Byte[0] = Right dir, Byte[1] = Left dir, Byte[2] = Right speed, Byte[3] = Left speed
+  // Sử dụng communicateAllByte() như trong DriveTest.ino
+  maxBus_->communicateAllByte(dirR, dirL, spR, spL);
+
+  lastDirL_ = dirL;
+  lastSpeedL_ = spL;
+  lastDirR_ = dirR;
+  lastSpeedR_ = spR;
+  lastFrameAt_ = now;
 #endif
 }

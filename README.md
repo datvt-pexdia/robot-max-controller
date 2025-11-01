@@ -171,8 +171,8 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 - **Replace vs enqueue:** replace cancels current + future tasks for each device; enqueue preserves the current task and appends to the queue.
 - **Task lifecycle callbacks:** the ESP responds with `ack`, `progress`, `done`, or `error` messages for each task so the server always knows the state.
 - **Robust reconnects:** Wi-Fi and WebSocket connections auto-retry with exponential backoff (1s → 5s). When the socket drops, all in-flight tasks are canceled to prevent desynchronisation.
-- **Heartbeats:** the server pings the ESP every 15s (`WS_HEARTBEAT_INTERVAL_MS`) and treats missing pongs after 30s as a disconnect. The ESP responds with `pong` to keep the connection alive.
-- **Wheels Continuous Mode:** the wheels device runs a continuous task that sends motor commands at **~30 Hz (33ms intervals)** to keep the MAX modules responsive. Speed is mapped to 14 levels (0x42-0x4F), with 0x40 for STOP. Direction is encoded as 0x2n (CW) or 0x3n (CCW). Features slew-rate limiting and soft/hard stop timeouts (150ms/400ms). See `firmware/main/WHEELS_CONTINUOUS_MODE.md` for details.
+- **Heartbeats:** the server pings every **15s**; if no `pong` within **30s** the socket is dropped.
+- **Wheels Continuous Mode:** refresh **~30 Hz (every 33 ms)**; includes slew-rate smoothing and soft/hard stop safety.
 
 ## Troubleshooting
 
@@ -180,19 +180,27 @@ arduino-cli monitor -p COM13 -c baudrate=115200
 - **Server status shows `connected:false`:** ensure the firmware is running and Wi-Fi is stable. The ESP sends a `hello` packet on connect which updates `lastHello`.
 - **Tasks not executing:** watch serial logs for cancellation messages. Replace requests preempt running tasks per device.
 
-## Hardware Integration
+## Real mode (Meccano M.A.X.)
 
-The firmware now supports **real Meccano M.A.X motor control** when `SIMULATION` is set to `false`:
+Mapping (community-verified):
 
-- Motor commands are sent via the MAX bus at 30 Hz for responsive control
-- Speed mapping: normalized values [-1..1] → 14 speed levels (0x42-0x4F) or STOP (0x40)
-- Direction: CW (0x2n) or CCW (0x3n) based on configured forward direction per wheel
-- Automatic stop: soft stop after 150ms without commands, hard stop after 400ms
+- Direction nybble: **0x2n = CW**, **0x3n = CCW**
+- Speed codes: **0x40 = STOP**, **0x42..0x4F** (14 steps; **0x41 unused**)
 
-Ensure you have the Meccano M.A.X libraries installed:
-```bash
-arduino-cli lib install "MeccaChannel" "MeccaMaxDrive"
+**Config macros** (see `firmware/main/Config.h`):
+```c
+#define SIMULATION            false
+#define MAX_DATA_PIN          D4
+#define MAX_LEFT_POS          0
+#define MAX_RIGHT_POS         1
+#define LEFT_FORWARD_IS_CCW   1
+#define RIGHT_FORWARD_IS_CCW  0
+#define WHEELS_TICK_MS        33
+#define SOFT_STOP_TIMEOUT_MS  150
+#define HARD_STOP_TIMEOUT_MS  400
+#define MAX_KEEPALIVE_MS      250
 ```
+Notes: Commands are emitted at 30 Hz; writes to bus happen on change or every `MAX_KEEPALIVE_MS` to prevent devices dozing.
 
 ## Next steps
 

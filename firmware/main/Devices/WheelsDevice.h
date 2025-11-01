@@ -27,14 +27,22 @@ private:
   uint32_t deadlineAt_ = 0;           // nếu durationMs > 0
 
 #if !SIMULATION
-  MeccaChannel*  maxBus_ = nullptr;
-  MeccaMaxDrive* drive_   = nullptr;
+  MeccaChannel*        maxBus_ = nullptr;
+  MeccaMaxMotorDevice* motorL_ = nullptr;
+  MeccaMaxMotorDevice* motorR_ = nullptr;
 #endif
+
+  // Cache để giảm chatter
+  uint8_t  lastDirL_    = 0xFF;
+  uint8_t  lastSpeedL_  = 0xFF;
+  uint8_t  lastDirR_    = 0xFF;
+  uint8_t  lastSpeedR_  = 0xFF;
+  uint32_t lastFrameAt_ = 0;
 
   void applySlewToward(float &cur, float tgt);
   void driveMotors(float normL, float normR); // gắn driver thật ở đây
 
   // helpers
-  uint8_t speedCodeFromNorm(float v) const;         // → 0x40 hoặc 0x42..0x4F
-  uint8_t dirCodeForWheel(bool isLeft, float v) const; // → 0x2n (CW) / 0x3n (CCW) tuỳ cấu hình forward
+  uint8_t speedCodeFromNorm(float v) const;       // 0x40 hoặc 0x42..0x4F
+  uint8_t dirCodeForWheel(bool isLeft, float v) const; // 0x2n(CW)/0x3n(CCW)
 };

@@ -34,10 +34,21 @@
   #define RIGHT_FORWARD_IS_CCW  0  // 1: CCW là tiến, 0: CW là tiến
 #endif
 
-// ==== Wheels Continuous Mode tuning ====
-#define WHEELS_TICK_MS            33     // ~30Hz
-#define SOFT_STOP_TIMEOUT_MS      150    // >150ms không có lệnh ⇒ ramp về 0
-#define HARD_STOP_TIMEOUT_MS      400    // >400ms ⇒ STOP cứng
+// ==== Wheels Continuous Mode timing ====
+#ifndef WHEELS_TICK_MS
+  #define WHEELS_TICK_MS          33     // ~30 Hz
+#endif
+#ifndef SOFT_STOP_TIMEOUT_MS
+  #define SOFT_STOP_TIMEOUT_MS    150
+#endif
+#ifndef HARD_STOP_TIMEOUT_MS
+  #define HARD_STOP_TIMEOUT_MS    400
+#endif
+
+// Gửi lại frame (dù giữ nguyên) theo chu kỳ để thiết bị không "ngủ"
+#ifndef MAX_KEEPALIVE_MS
+  #define MAX_KEEPALIVE_MS        250
+#endif
 
 // ==== JSON buffers (ArduinoJson v6) ====
 #define JSON_RX_DOC_CAPACITY  512  // cân đối theo payload thực tế
