@@ -1,5 +1,9 @@
 #pragma once
 
+#if __has_include("Config.local.h")
+  #include "Config.local.h"  // defines WIFI_SSID, WIFI_PASS overrides
+#endif
+
 // ==== SIMULATION (disabled - REAL mode only) ====
 #define SIMULATION            0
 

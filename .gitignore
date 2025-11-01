@@ -36,6 +36,7 @@ logs
 
 # Ignore local config
 server/config.local.*
+firmware/main/Config.local.h
 
 # Ignore potential secret/test credentials
 *.secret

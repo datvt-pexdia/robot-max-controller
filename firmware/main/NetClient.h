@@ -64,7 +64,6 @@ class NetClient {
   void scheduleReconnect();
   void handleEvent(WStype_t type, uint8_t* payload, size_t length);
   void handleMessage(const String& payload);
-  void parseTasks(JsonArrayConst arr, bool enqueueMode);
   void sendHello();
   void sendEnvelope(JsonDocument& doc);
 };

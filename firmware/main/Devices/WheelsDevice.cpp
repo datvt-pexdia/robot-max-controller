@@ -3,6 +3,8 @@
 #include "../Config.h"
 #include <math.h>
 
+static constexpr int8_t PCT_DEADZONE = 2;
+
 void WheelsDevice::begin() {
   targetPctL_ = targetPctR_ = 0;
   lastSentPctL_ = lastSentPctR_ = 127; // 127 = "unset"
@@ -120,8 +122,8 @@ void WheelsDevice::tickWheels() {
   }
 
   bool needKeepalive = (now - lastBusWriteMs_) >= MAX_KEEPALIVE_MS;
-  bool changedL = (targetPctL_ != lastSentPctL_);
-  bool changedR = (targetPctR_ != lastSentPctR_);
+  bool changedL = (abs(targetPctL_ - lastSentPctL_) >= PCT_DEADZONE);
+  bool changedR = (abs(targetPctR_ - lastSentPctR_) >= PCT_DEADZONE);
 
   if (changedL || changedR || needKeepalive) {
     // Prepare direction and speed bytes for both motors

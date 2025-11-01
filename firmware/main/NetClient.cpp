@@ -26,6 +26,19 @@ void NetClient::begin(TaskRunner* r) {
   WiFi.persistent(false);
   WiFi.setSleep(false);  // tránh modem-sleep làm trễ PONG
 
+  // Ensure Wi‑Fi connects before attempting WebSocket
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  unsigned long t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && (millis() - t0) < 10000) { // 10s timeout
+    delay(100);
+    yield();
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[NET] WiFi connect timeout, will backoff & retry in loop()");
+  } else {
+    Serial.printf("[NET] WiFi connected, IP=%s\n", WiFi.localIP().toString().c_str());
+  }
+
   // Callback C-style -> trampoline
   ws.onEvent(&NetClient::onWsEventThunk);
 
@@ -64,7 +77,7 @@ void NetClient::loop() {
 
 void NetClient::sendAck(const String& taskId) {
   if (!connected) return;
-  StaticJsonDocument<JSON_TX_DOC_CAPACITY> doc;
+  StaticJsonDocument<256> doc;
   doc["kind"] = "ack";
   doc["taskId"] = taskId;
   sendEnvelope(doc);
@@ -72,7 +85,7 @@ void NetClient::sendAck(const String& taskId) {
 
 void NetClient::sendProgress(const String& taskId, uint8_t pct, const String& note) {
   if (!connected) return;
-  StaticJsonDocument<JSON_TX_DOC_CAPACITY> doc;
+  StaticJsonDocument<256> doc;
   doc["kind"] = "progress";
   doc["taskId"] = taskId;
   doc["pct"] = pct;
@@ -84,7 +97,7 @@ void NetClient::sendProgress(const String& taskId, uint8_t pct, const String& no
 
 void NetClient::sendDone(const String& taskId) {
   if (!connected) return;
-  StaticJsonDocument<JSON_TX_DOC_CAPACITY> doc;
+  StaticJsonDocument<256> doc;
   doc["kind"] = "done";
   doc["taskId"] = taskId;
   sendEnvelope(doc);
@@ -92,7 +105,7 @@ void NetClient::sendDone(const String& taskId) {
 
 void NetClient::sendError(const String& taskId, const String& message) {
   if (!connected) return;
-  StaticJsonDocument<JSON_TX_DOC_CAPACITY> doc;
+  StaticJsonDocument<256> doc;
   doc["kind"] = "error";
   if (taskId.length() > 0) {
     doc["taskId"] = taskId;
@@ -186,7 +199,7 @@ void NetClient::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
 }
 
 void NetClient::handleMessage(const String& payload) {
-  StaticJsonDocument<JSON_RX_DOC_CAPACITY> doc;
+  StaticJsonDocument<512> doc;
   DeserializationError err = deserializeJson(doc, payload);
   if (err) {
     Serial.printf("[NET] JSON parse error: %s\n", err.c_str());
@@ -234,7 +247,7 @@ void NetClient::handleMessage(const String& payload) {
   }
 
   if (strcmp(kind, "ping") == 0) {
-    StaticJsonDocument<JSON_TX_DOC_CAPACITY> pong;
+    StaticJsonDocument<96> pong;
     pong["kind"] = "pong";
     pong["t"] = doc["t"] | (uint32_t)millis();
     sendEnvelope(pong);
@@ -256,52 +269,8 @@ void NetClient::handleMessage(const String& payload) {
   Serial.printf("[NET] Unknown kind=%s\n", kind);
 }
 
-void NetClient::parseTasks(JsonArrayConst arr, bool enqueueMode) {
-  if (!runner) return;
-
-  std::vector<TaskEnvelope> tasks;
-  for (JsonVariantConst item : arr) {
-    if (!item.is<JsonObjectConst>()) continue;
-    JsonObjectConst obj = item.as<JsonObjectConst>();
-
-    TaskEnvelope env;
-    env.taskId     = obj["taskId"]    | String();
-    env.device     = obj["device"]    | String();
-    env.type       = obj["type"]      | String();
-    env.angle      = obj["angle"]     | (uint16_t)0;
-    env.left       = obj["left"]      | (int16_t)0;
-    env.right      = obj["right"]     | (int16_t)0;
-    env.durationMs = obj["durationMs"]| (uint32_t)0;
-
-    // Sanity clamp (tránh giá trị out-of-range)
-    if (env.left < -100)  env.left  = -100;
-    if (env.left > 100)   env.left  = 100;
-    if (env.right < -100) env.right = -100;
-    if (env.right > 100)  env.right = 100;
-
-    if (env.taskId.length() == 0 || env.device.length() == 0) {
-      sendError("", "invalid task data");
-      continue;
-    }
-    tasks.push_back(env);
-  }
-
-  if (tasks.empty()) {
-    Serial.println("[NET] No tasks");
-    return;
-  }
-
-  Serial.printf("[NET] %s %u task(s)\n", enqueueMode ? "enqueue" : "replace",
-                (unsigned)tasks.size());
-  if (enqueueMode) {
-    runner->enqueueTasks(tasks);
-  } else {
-    runner->replaceTasks(tasks);
-  }
-}
-
 void NetClient::sendHello() {
-  StaticJsonDocument<JSON_TX_DOC_CAPACITY> doc;
+  StaticJsonDocument<256> doc;
   doc["kind"] = "hello";
   doc["espId"] = String(ESP.getChipId(), HEX);
   doc["fw"] = "robot-max-fw/1.0";
