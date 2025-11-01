@@ -21,8 +21,14 @@ void WheelsDevice::begin() {
   if (!maxBus_) {
     maxBus_ = new MeccaChannel(MAX_DATA_PIN);
   }
+  if (!motorL_) {
+    motorL_ = new MeccaMaxMotorDevice(*maxBus_, MAX_LEFT_POS);
+  }
+  if (!motorR_) {
+    motorR_ = new MeccaMaxMotorDevice(*maxBus_, MAX_RIGHT_POS);
+  }
 
-  // Gửi một lượt communicate để kích hoạt thiết bị trên bus (giống DriveTest.ino)
+  // Send initial communication to activate devices on bus
   if (maxBus_) {
     maxBus_->communicate();
   }
@@ -93,7 +99,6 @@ void WheelsDevice::driveMotors(float normL, float normR) {
   if (!maxBus_) return;
   const uint32_t now = millis();
 
-  // Frame hiện tại
   const uint8_t spL = speedCodeFromNorm(normL);
   const uint8_t spR = speedCodeFromNorm(normR);
   const uint8_t dirL = (spL == 0x40) ? dirCodeForWheel(true,  0.0f) : dirCodeForWheel(true,  normL);
@@ -103,17 +108,13 @@ void WheelsDevice::driveMotors(float normL, float normR) {
   const bool chgR = (dirR != lastDirR_) || (spR != lastSpeedR_);
   const bool needKeepAlive = (now - lastFrameAt_) >= MAX_KEEPALIVE_MS;
 
-  if (!(chgL || chgR || needKeepAlive)) {
-    return;
+  if (chgL || chgR || needKeepAlive) {
+    // Community mapping: Byte[0] = Right dir, Byte[1] = Left dir, Byte[2] = Right speed, Byte[3] = Left speed
+    maxBus_->communicateAllByte(dirR, dirL, spR, spL);
+    lastDirL_ = dirL;
+    lastSpeedL_ = spL;
+    lastDirR_ = dirR;
+    lastSpeedR_ = spR;
+    lastFrameAt_ = now;
   }
-
-  // Theo mapping community: Byte[0] = Right dir, Byte[1] = Left dir, Byte[2] = Right speed, Byte[3] = Left speed
-  // Sử dụng communicateAllByte() như trong DriveTest.ino
-  maxBus_->communicateAllByte(dirR, dirL, spR, spL);
-
-  lastDirL_ = dirL;
-  lastSpeedL_ = spL;
-  lastDirR_ = dirR;
-  lastSpeedR_ = spR;
-  lastFrameAt_ = now;
 }

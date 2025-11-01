@@ -25,7 +25,9 @@ private:
   uint32_t deadlineAt_ = 0;           // nếu durationMs > 0
 
   // MAX bus + devices (REAL-only)
-  MeccaChannel* maxBus_ = nullptr;
+  MeccaChannel*        maxBus_ = nullptr;
+  MeccaMaxMotorDevice* motorL_ = nullptr;
+  MeccaMaxMotorDevice* motorR_ = nullptr;
 
   // Cache để giảm chatter
   uint8_t  lastDirL_    = 0xFF;

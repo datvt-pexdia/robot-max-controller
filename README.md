@@ -122,13 +122,13 @@ Example response:
 
 ## ESP8266 firmware
 
-The firmware is designed for NodeMCU-style ESP8266 boards. It runs in REAL mode and controls Meccano M.A.X hardware.
+The firmware is designed for NodeMCU-style ESP8266 boards and runs in REAL mode only.
 
-Update `firmware/main/Config.h` with your Wi-Fi credentials and server IP before flashing.
+Update `firmware/src/Config.h` with your Wi-Fi credentials and server IP before flashing.
 
 ### Meccano M.A.X Configuration
 
-Configure the MAX bus wiring in `Config.h`:
+Configure the MAX bus wiring in `firmware/src/Config.h`:
 
 - `MAX_DATA_PIN`: ESP8266 pin connected to MAX bus data wire (default: `D4`)
 - `MAX_LEFT_POS`: Device position of left motor on MAX chain (default: `0`)
@@ -188,7 +188,7 @@ The firmware controls Meccano M.A.X hardware using the MAX bus protocol.
 - Direction nybble: **0x2n = CW**, **0x3n = CCW**
 - Speed codes: **0x40 = STOP**, **0x42..0x4F** (14 steps; **0x41 unused**)
 
-**Config macros** (see `firmware/main/Config.h`):
+**Config macros** (see `firmware/src/Config.h`):
 ```c
 #define MAX_DATA_PIN          D4
 #define MAX_LEFT_POS          0
@@ -202,6 +202,22 @@ The firmware controls Meccano M.A.X hardware using the MAX bus protocol.
 ```
 
 **Notes:** Commands are emitted at **~30 Hz**; writes to bus happen on change or every `MAX_KEEPALIVE_MS` to prevent devices from dozing. Soft stop activates after **150ms** of no commands; hard stop triggers after **400ms**.
+
+## Quick tests
+
+Test wheels control with these commands (replace `<SERVER_IP>` with your server's IP address):
+
+```bash
+# Straight forward for 1.5s
+curl -X POST http://<SERVER_IP>:8080/robot/tasks/replace \
+  -H "Content-Type: application/json" \
+  -d '{"tasks":[{"taskId":"t1","device":"wheels","type":"drive","left":60,"right":60,"durationMs":1500}]}'
+
+# In-place left turn for 0.8s
+curl -X POST http://<SERVER_IP>:8080/robot/tasks/replace \
+  -H "Content-Type: application/json" \
+  -d '{"tasks":[{"taskId":"t2","device":"wheels","type":"drive","left":-50,"right":50,"durationMs":800}]}'
+```
 
 ## Next steps
 

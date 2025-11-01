@@ -1,5 +1,10 @@
 #pragma once
 
+// ==== SIMULATION guard ====
+#ifdef SIMULATION
+#error "SIMULATION is not supported. Firmware is REAL-only."
+#endif
+
 // ==== Wi-Fi & WS endpoint ====
 static const char* WIFI_SSID = "Huy Minh";
 static const char* WIFI_PASS = "23052004";
